@@ -1,0 +1,36 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class UnitPurchase extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'units',
+        'unit_price',
+        'amount_paid',
+        'proof_of_payment',
+        'status',
+        'approved_by',
+        'approved_at',
+    ];
+
+    protected $casts = [
+        'units' => 'decimal:2',
+        'unit_price' => 'decimal:2',
+        'amount_paid' => 'decimal:2',
+        'approved_at' => 'datetime',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+}
