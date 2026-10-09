@@ -25,4 +25,19 @@ return Application::configure(basePath: dirname(__DIR__))
             return redirect()->route('login')
                 ->with('error', 'Page expired. Please sign in again.');
         });
-    })->create();
+
+        $exceptions->render(function (\Illuminate\Http\Exceptions\ThrottleRequestsException $e, $request) {
+            $message = match (true) {
+                $request->routeIs('teams.store') => 'You can create up to 5 teams a day. Try again tomorrow.',
+                $request->routeIs('projects.store') => 'You can create up to 10 projects a day. Try again tomorrow.',
+                $request->routeIs('friends.request') => 'Too many friend requests. Try again in an hour.',
+                default => 'Too many attempts. Please wait and try again.',
+            };
+
+            if ($request->expectsJson()) {
+                return response()->json(['message' => $message], 429);
+            }
+
+            return redirect()->back()->with('error', $message);
+        });
+            })->create();
