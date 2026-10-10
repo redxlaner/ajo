@@ -53,24 +53,32 @@
                     <span class="font-bold text-lg tracking-tight text-white">Ajo</span>
                 </a>
                 <div class="flex items-center gap-2 sm:gap-3">
-                    <a href="#discover" class="hidden md:inline-flex text-sm font-medium text-slate-300 hover:text-white transition px-3 py-2">
-                        Discover
+                    <a href="{{ route('discover') }}" class="hidden md:inline-flex items-center gap-1.5 text-sm font-medium text-slate-300 hover:text-white transition px-3 py-2">
+                        <span>Ajo Discovery</span>
+                        <span class="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wider border border-indigo-500/30">New</span>
                     </a>
                     <a href="{{ route('blog.index') }}" class="inline-flex text-sm font-medium text-slate-300 hover:text-white transition px-2 py-2">
                         Learn
                     </a>
                     @if (Route::has('login'))
-                        <a href="{{ route('login') }}"
-                           class="text-sm font-medium text-slate-300 hover:text-white transition px-2 py-2 min-h-[44px] inline-flex items-center">
-                            Log in
-                        </a>
-                        @if (Route::has('register'))
-                            <a href="{{ route('register') }}"
-                            class="text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg transition min-h-[44px] inline-flex items-center">
-                                <span class="sm:hidden">Join</span>
-                                <span class="hidden sm:inline">Create an Ajo</span>
+                        @auth
+                            <a href="{{ route('dashboard') }}"
+                               class="text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg transition min-h-[44px] inline-flex items-center">
+                                Dashboard
                             </a>
-                        @endif
+                        @else
+                            <a href="{{ route('login') }}"
+                               class="text-sm font-medium text-slate-300 hover:text-white transition px-2 py-2 min-h-[44px] inline-flex items-center">
+                                Log in
+                            </a>
+                            @if (Route::has('register'))
+                                <a href="{{ route('register') }}"
+                                   class="text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg transition min-h-[44px] inline-flex items-center">
+                                    <span class="sm:hidden">Join</span>
+                                    <span class="hidden sm:inline">Host an Ajo</span>
+                                </a>
+                            @endif
+                        @endauth
                     @endif
                 </div>
             </div>
@@ -88,7 +96,7 @@
                 <div class="text-center lg:text-left max-w-xl mx-auto lg:mx-0">
                     <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-6">
                         <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" aria-hidden="true"></span>
-                        Ajo — Build what matters, together.
+                        Ajo Discovery — Join open teams or build your own.
                     </div>
 
                     <h1 class="text-4xl sm:text-5xl font-extrabold text-white leading-[1.12] tracking-tight text-balance">
@@ -97,35 +105,35 @@
 
                     <p class="mt-5 text-base sm:text-lg text-slate-300 leading-relaxed text-pretty">
                         People have goals. People have people. Ajo brings the two together on <strong class="text-white">ajosafe.com</strong>.
-                        Pool capital for cars, real estate, Japa, inventory, or travel with automated ledgers, locked vaults, and total transparency.
+                        Join verified Ajo circles or pool capital for cars, real estate, Japa, inventory, or travel with automated ledgers and locked vaults.
                     </p>
 
                     <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
                         @auth
-                            <a href="{{ route('teams.create') }}"
-                            class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition shadow-lg shadow-indigo-600/20">
-                                Create an Ajo
+                            <a href="{{ route('discover') }}"
+                               class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition shadow-lg shadow-indigo-600/20">
+                                Find Open Circles
                             </a>
-                            <a href="{{ route('dashboard') }}"
-                            class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-700 transition">
-                                Go to dashboard
+                            <a href="{{ route('teams.create') }}"
+                               class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-700 transition">
+                                Host an Ajo
                             </a>
                         @else
+                            <a href="{{ route('discover') }}"
+                               class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition shadow-lg shadow-indigo-600/20">
+                                Find Open Circles
+                            </a>
                             @if (Route::has('register'))
                                 <a href="{{ route('register') }}"
-                                class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition shadow-lg shadow-indigo-600/20">
-                                    Create an Ajo
+                                   class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-700 transition">
+                                    Host an Ajo
                                 </a>
                             @endif
-                            <a href="#discover"
-                            class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-700 transition">
-                                Discover Open Goals
-                            </a>
                         @endauth
                     </div>
 
                     <p class="mt-5 text-xs sm:text-sm text-slate-400">
-                        Built for trusted circles &amp; public goal networks — Friends, SMEs, Diaspora, and Communities.
+                        Built for solitary savers &amp; trusted circles — Friends, SMEs, Diaspora, and Communities.
                     </p>
                 </div>
 
@@ -169,6 +177,69 @@
                         </div>
                     </div>
                     <p class="mt-3 text-center text-xs text-slate-400 lg:text-left">Live progress tracking, verified receipts, and multi-sig release rules.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Ajo Discovery Marketplace Preview -->
+    <section class="border-t border-slate-800/80 py-16 sm:py-20 bg-slate-900/50" id="discover">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6">
+            <div class="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
+                <div>
+                    <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Ajo Discovery Engine</span>
+                    <h2 class="text-2xl sm:text-3xl font-bold text-white mt-1">Join a verified savings circle</h2>
+                    <p class="text-slate-400 text-sm sm:text-base mt-2">No group? Browse transparent, rule-backed pools matching your budget.</p>
+                </div>
+                <a href="{{ route('discover') }}" class="inline-flex items-center text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition">
+                    Explore all open circles &rarr;
+                </a>
+            </div>
+
+            <!-- Circle Cards Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Sample Circle Card 1 -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-start mb-4">
+                            <span class="bg-emerald-500/10 text-emerald-400 text-xs font-medium px-2.5 py-1 rounded-full border border-emerald-500/20">Tier-3 KYC Verified</span>
+                            <span class="text-xs text-slate-400">Monthly</span>
+                        </div>
+                        <h3 class="font-bold text-white text-base">Lagos SME Inventory Pool</h3>
+                        <p class="text-slate-400 text-xs mt-1">₦100,000 / month · 10 Members</p>
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
+                        <span class="text-slate-300">Slots: <strong class="text-emerald-400">2 open</strong></span>
+                        <a href="{{ route('discover') }}" class="text-indigo-400 font-semibold hover:underline">Apply Slot &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Sample Circle Card 2 -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 transition flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-start mb-4">
+                            <span class="bg-indigo-500/10 text-indigo-400 text-xs font-medium px-2.5 py-1 rounded-full border border-indigo-500/20">Collateral Backed</span>
+                            <span class="text-xs text-slate-400">Weekly</span>
+                        </div>
+                        <h3 class="font-bold text-white text-base">Japa POF Relocation Circle</h3>
+                        <p class="text-slate-400 text-xs mt-1">₦25,000 / week · 8 Members</p>
+                    </div>
+                    <div class="mt-6 pt-4 border-t border-slate-800 flex justify-between items-center text-xs">
+                        <span class="text-slate-300">Slots: <strong class="text-emerald-400">1 open</strong></span>
+                        <a href="{{ route('discover') }}" class="text-indigo-400 font-semibold hover:underline">Apply Slot &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Host Callout Card -->
+                <div class="bg-slate-950 border border-dashed border-slate-700 rounded-2xl p-5 flex flex-col justify-between">
+                    <div>
+                        <span class="bg-slate-800 text-slate-300 text-xs font-medium px-2.5 py-1 rounded-full border border-slate-700">For Group Hosts</span>
+                        <h3 class="font-bold text-white text-base mt-3">Have empty slots in your pool?</h3>
+                        <p class="text-slate-400 text-xs mt-2 leading-relaxed">List your group on Discovery to attract verified, rated participants backstopped by platform rules.</p>
+                    </div>
+                    <a href="{{ route('register') }}" class="mt-6 inline-flex items-center justify-center bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2.5 px-4 rounded-lg transition border border-indigo-500">
+                        List Your Circle
+                    </a>
                 </div>
             </div>
         </div>
@@ -218,13 +289,13 @@
                     $steps = [
                         [
                             'n' => '1',
-                            'title' => 'Create a Vault',
-                            'body' => 'Set your goal target (e.g., Car, Property, Japa, Inventory), contribution timeline, and vault release conditions.',
+                            'title' => 'Find or Host a Vault',
+                            'body' => 'Browse open circles on Ajo Discovery or set up your own vault target with clear contribution schedules.',
                         ],
                         [
                             'n' => '2',
-                            'title' => 'Bring or Find Your People',
-                            'body' => 'Invite trusted friends via deep link or list your goal on the public Discovery Engine to connect with verified partners.',
+                            'title' => 'Connect Verified Savers',
+                            'body' => 'Invite your friends via deep links or allow background-checked savers to fill open payout slots.',
                         ],
                         [
                             'n' => '3',
@@ -311,17 +382,15 @@
                 @endforeach
 
                 <!-- Discovery Network Callout Card -->
-                <article class="rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 p-6 sm:p-8 flex flex-col justify-center min-h-[220px]" id="discover">
+                <article class="rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 p-6 sm:p-8 flex flex-col justify-center min-h-[220px]">
                     <h3 class="text-lg font-bold text-white mb-2">Don't have a group?</h3>
                     <p class="text-sm text-indigo-100 leading-relaxed mb-6">
                         Explore our public Discovery Engine to connect with verified people working toward the exact same goal.
                     </p>
-                    @if (Route::has('register'))
-                        <a href="{{ route('register') }}"
-                           class="inline-flex items-center justify-center bg-white text-indigo-700 font-semibold px-5 py-3 rounded-xl hover:bg-indigo-50 transition text-sm min-h-[44px]">
-                            Find Your People
-                        </a>
-                    @endif
+                    <a href="{{ route('discover') }}"
+                       class="inline-flex items-center justify-center bg-white text-indigo-700 font-semibold px-5 py-3 rounded-xl hover:bg-indigo-50 transition text-sm min-h-[44px]">
+                        Find Your Circle
+                    </a>
                 </article>
             </div>
         </div>
@@ -416,19 +485,17 @@
             <div class="rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-900 p-8 sm:p-12 text-center shadow-xl shadow-indigo-950/40">
                 <h2 class="text-2xl sm:text-3xl font-bold text-white text-balance">Build what matters, together.</h2>
                 <p class="mt-4 text-indigo-100 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-                    Stop letting buried group chat messages kill your goals. Create a locked vault on ajosafe.com or find your people today.
+                    Stop letting buried group chat messages kill your goals. Find a verified team on Ajo Discovery or create a locked vault on ajosafe.com today.
                 </p>
                 <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+                    <a href="{{ route('discover') }}"
+                       class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-white text-indigo-700 font-semibold rounded-xl hover:bg-indigo-50 transition">
+                        Find Open Circles
+                    </a>
                     @if (Route::has('register'))
                         <a href="{{ route('register') }}"
-                           class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-white text-indigo-700 font-semibold rounded-xl hover:bg-indigo-50 transition">
-                            Create an Ajo
-                        </a>
-                    @endif
-                    @if (Route::has('login'))
-                        <a href="{{ route('login') }}"
                            class="inline-flex justify-center items-center px-7 py-3.5 min-h-[48px] bg-indigo-500/30 hover:bg-indigo-500/50 text-white font-medium rounded-xl border border-white/20 transition">
-                            Log in
+                            Host an Ajo
                         </a>
                     @endif
                 </div>
@@ -438,25 +505,26 @@
 
     <!-- Footer -->
     <footer class="border-t border-slate-800 py-10">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6">
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
-            <div class="flex items-center gap-2">
-                <img src="{{ asset('images/ajo-logo.png') }}" alt="" class="h-7 w-7 object-contain" width="28" height="28">
-                <span class="font-medium text-white text-sm">Ajo</span>
+        <div class="max-w-6xl mx-auto px-4 sm:px-6">
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+                <div class="flex items-center gap-2">
+                    <img src="{{ asset('images/ajo-logo.png') }}" alt="" class="h-7 w-7 object-contain" width="28" height="28">
+                    <span class="font-medium text-white text-sm">Ajo</span>
+                </div>
+                <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-400">
+                    <a href="{{ route('discover') }}" class="hover:text-white">Discover</a>
+                    <a href="{{ route('blog.index') }}" class="hover:text-white">Learn</a>
+                    <a href="{{ route('privacy') }}" class="hover:text-white">Privacy</a>
+                    <a href="{{ route('terms') }}" class="hover:text-white">Terms</a>
+                    <a href="{{ route('login') }}" class="hover:text-white">Log in</a>
+                    <a href="{{ route('register') }}" class="hover:text-white">Create an account</a>
+                </nav>
             </div>
-            <nav class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-400">
-                <a href="{{ route('blog.index') }}" class="hover:text-white">Learn</a>
-                <a href="{{ route('privacy') }}" class="hover:text-white">Privacy</a>
-                <a href="{{ route('terms') }}" class="hover:text-white">Terms</a>
-                <a href="{{ route('login') }}" class="hover:text-white">Log in</a>
-                <a href="{{ route('register') }}" class="hover:text-white">Create an account</a>
-            </nav>
+            <p class="mt-6 text-center text-[11px] text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                © {{ date('Y') }} Ajo · ajosafe.com. A social cooperative for teams funding a goal or running a contribution circle. Not a bank, not a lender, not an investment scheme.
+            </p>
         </div>
-        <p class="mt-6 text-center text-[11px] text-slate-500 max-w-2xl mx-auto leading-relaxed">
-            © {{ date('Y') }} Ajo · ajosafe.com. A social cooperative for teams funding a goal or running a contribution circle. Not a bank, not a lender, not an investment scheme.
-        </p>
-    </div>
-</footer>
+    </footer>
 
 </body>
 </html>

@@ -277,4 +277,34 @@ public function isFriendWith(User $other): bool
         })
         ->exists();
 }
+
+public function isKnownTo(\App\Models\User $host): bool
+{
+    if ($this->id === $host->id) {
+        return true;
+    }
+
+    $friends = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($q) use ($host) {
+            $q->where('user_id', $this->id)->where('friend_id', $host->id);
+        })->orWhere(function ($q) use ($host) {
+            $q->where('user_id', $host->id)->where('friend_id', $this->id)->where('status', 'accepted');
+        })->exists();
+
+    if ($friends) {
+        return true;
+    }
+
+    $hostTeamIds = \App\Models\CommunityMember::where('user_id', $host->id)->where('status', 'active')->pluck('community_id');
+    $sharesTeam = \App\Models\CommunityMember::where('user_id', $this->id)
+        ->where('status', 'active')
+        ->whereIn('community_id', $hostTeamIds)
+        ->exists();
+
+    if ($sharesTeam) {
+        return true;
+    }
+
+    return \App\Models\CirclePayment::where('user_id', $this->id)->where('status', 'approved')->exists();
+}
 }

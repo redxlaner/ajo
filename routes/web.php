@@ -1,18 +1,87 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+
+if (! function_exists('user_has_any_role')) {
+    function user_has_any_role(?object $user, array $roles): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if (method_exists($user, 'hasAnyRole')) {
+            return $user->hasAnyRole($roles);
+        }
+
+        if (method_exists($user, 'hasRole')) {
+            foreach ($roles as $role) {
+                if ($user->hasRole($role)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (method_exists($user, 'roles')) {
+            return $user->roles()->whereIn('name', $roles)->exists();
+        }
+
+        return false;
+    }
+}
 
 // Public homepage
 Route::get('/', function () {
-    return auth()->check() 
-        ? redirect()->route('dashboard') 
+    return Auth::check()
+        ? redirect()->route('dashboard')
         : view('welcome');
 });
+
+Route::get('/api/discover/open', function () {
+    $circles = \App\Models\Circle::with('host:id,name')
+        ->withCount(['slots as open_slots_count' => fn ($q) => $q->where('status', 'open')])
+        ->where('visibility', 'public')
+        ->where('status', 'open')
+        ->having('open_slots_count', '>', 0)
+        ->latest()
+        ->limit(20)
+        ->get()
+        ->map(fn ($c) => [
+            'title' => $c->title,
+            'url' => route('circles.show', $c->slug),
+            'amount' => $c->contribution_amount,
+            'frequency' => $c->frequency,
+            'open_slots' => $c->open_slots_count,
+            'host' => $c->host->name,
+            'line' => '₦'.number_format($c->contribution_amount).'/'.$c->frequency.' pool looking for '.$c->open_slots_count.' member'.($c->open_slots_count === 1 ? '' : 's'),
+        ]);
+
+    return response()->json(['data' => $circles]);
+})->name('discover.api');
+
+Route::get('/circles/{slug}', function ($slug) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+
+    $circle->slots()
+        ->where('status', 'reserved')
+        ->where('reserved_until', '<', now())
+        ->update([
+            'status' => 'open',
+            'user_id' => null,
+            'reserved_until' => null,
+        ]);
+
+    $circle->load(['host', 'slots.user', 'slots.payments']);
+
+    return view('circles.show', compact('circle'));
+})->name('circles.show');
 
 Route::get('/invite/{code}', function ($code) {
     $inviter = \App\Models\User::where('invite_code', $code)->firstOrFail();
 
-    if (auth()->check()) {
+    if (Auth::check()) {
         return redirect()->route('dashboard')
             ->with('message', 'You are already on Ajo. Invite friends with your own link.');
     }
@@ -27,9 +96,9 @@ Route::get('/invite/{code}', function ($code) {
 Route::get('/t/{slug}', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
 
-    if (auth()->check()) {
+    if (Auth::check()) {
         $isMember = \App\Models\CommunityMember::where('community_id', $team->id)
-            ->where('user_id', auth()->id())
+            ->where('user_id', Auth::id())
             ->where('status', 'active')
             ->exists();
 
@@ -49,8 +118,8 @@ Route::get('/p/{slug}/{id}', function ($slug, $id) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     $project = $team->projects()->findOrFail($id);
 
-    if (auth()->check()) {
-        if ($team->isMember(auth()->user())) {
+    if (Auth::check()) {
+        if ($team->isMember(Auth::user())) {
             return redirect()->route('projects.show', [$team->slug, $project->id]);
         }
 
@@ -68,16 +137,16 @@ Route::get('/p/{slug}/{id}', function ($slug, $id) {
 
 // Dashboard (requires login)
 Route::get('/dashboard', function () {
-    $user = auth()->user();
+    $user = Auth::user();
 
-    $myTeams = $user->communityMemberships()
+    $myTeams = \App\Models\CommunityMember::where('user_id', $user->id)
         ->with('community')
         ->where('status', 'active')
         ->latest()
         ->take(5)
         ->get();
 
-    $adminTeamIds = $user->communityMemberships()
+    $adminTeamIds = \App\Models\CommunityMember::where('user_id', $user->id)
         ->where('status', 'active')
         ->where('role', 'admin')
         ->pluck('community_id');
@@ -106,12 +175,16 @@ Route::get('/dashboard', function () {
 
     
 
-    $myTeamIds = auth()->user()->communityMemberships()
+    $myTeamIds = \App\Models\CommunityMember::where('user_id', $user->id)
         ->where('status', 'active')
         ->pluck('community_id');
 
-    $friendIds = auth()->user()->friendIds();
-    $authorIds = $friendIds->push(auth()->id())->unique();
+    $friendIds = \App\Models\CommunityMember::whereIn('community_id', $myTeamIds)
+        ->where('status', 'active')
+        ->where('user_id', '!=', $user->id)
+        ->pluck('user_id')
+        ->unique();
+    $authorIds = $friendIds->push($user->id)->unique();
 
     $feed = \App\Models\Activity::with(['user', 'community', 'parent'])
         ->withCount(['likes', 'comments', 'reposts', 'quotes'])
@@ -124,21 +197,17 @@ Route::get('/dashboard', function () {
         ->latest()
         ->limit(40)
         ->get();
-    // Optional: people you share teams with
-    $friendIds = \App\Models\CommunityMember::whereIn('community_id', $myTeamIds)
+    $teamOptions = \App\Models\CommunityMember::where('user_id', $user->id)
         ->where('status', 'active')
-        ->where('user_id', '!=', $user->id)
-        ->pluck('user_id')
-        ->unique();
+        ->with('community')
+        ->get();
 
-        $teamOptions = auth()->user()->communityMemberships()
-    ->where('status', 'active')
-    ->with('community')
-    ->get();
-
-    $suggestions = auth()->user()->suggestedFriends(5);
+    $suggestions = \App\Models\User::whereNotIn('id', $friendIds->push($user->id)->unique())
+        ->inRandomOrder()
+        ->take(5)
+        ->get();
     // pass to view
-    $joinedIds = $user->communityMemberships()
+    $joinedIds = \App\Models\CommunityMember::where('user_id', $user->id)
         ->whereIn('status', ['active', 'pending'])
         ->pluck('community_id');
 
@@ -202,7 +271,7 @@ Route::middleware('auth')->group(function () {
 
     // ====================== REPORTS ======================
 Route::get('/reports', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'auditor', 'chairperson'])) {
+    if (!user_has_any_role(request()->user(), ['admin', 'treasurer', 'auditor', 'chairperson'])) {
         abort(403);
     }
 
@@ -247,14 +316,14 @@ Route::get('/cycles', function () {
 })->name('cycles');
 
 Route::get('/cycles/create', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (!Auth::check() || !user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
     return view('cycles.create');
 })->name('cycles.create');
 
 Route::post('/cycles', function (Illuminate\Http\Request $request) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (!Auth::check() || !user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
     $validated = $request->validate([
@@ -275,7 +344,7 @@ Route::post('/cycles', function (Illuminate\Http\Request $request) {
 
 // Settings
 Route::get('/settings', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!Auth::check() || !user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -290,7 +359,7 @@ Route::get('/settings', function () {
 })->name('settings');
 
 Route::post('/settings', function (Illuminate\Http\Request $request) {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!Auth::check() || !user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -336,7 +405,7 @@ Route::post('/reactivation', function (Illuminate\Http\Request $request) {
         $admin->notify(new \App\Notifications\ContributionSubmitted(
             // Temporary reuse - better to create a dedicated notification later
             new \App\Models\MonthlyContribution([
-                'user_id' => auth()->id(),
+                'user_id' => $request->user()->getAuthIdentifier(),
                 'total_amount' => \App\Models\Setting::get('reactivation_fee'),
                 'status' => 'pending',
             ])
@@ -349,7 +418,7 @@ Route::post('/reactivation', function (Illuminate\Http\Request $request) {
 
 // Admin manually unsuspends a user
 Route::post('/users/{id}/unsuspend', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -369,12 +438,12 @@ Route::get('/units/buy', function () {
         'bank_name' => \App\Models\Setting::get('bank_name'),
         'account_number' => \App\Models\Setting::get('account_number'),
         'account_name' => \App\Models\Setting::get('account_name'),
-        'purchases' => auth()->user()->unitPurchases()->latest()->get(),
+        'purchases' => request()->user()->unitPurchases()->latest()->get(),
     ]);
 })->name('units.buy');
 
 Route::post('/units/buy', function (Illuminate\Http\Request $request) {
-    if (auth()->user()->is_suspended ?? false) {
+    if (Auth::check() && Auth::user()->is_suspended) {
         return back()->with('error', 'Your account is suspended.');
     }
 
@@ -390,7 +459,7 @@ Route::post('/units/buy', function (Illuminate\Http\Request $request) {
     $path = $request->file('proof_of_payment')->store('unit_purchase_proofs', 'public');
 
     $purchase = \App\Models\UnitPurchase::create([
-        'user_id' => auth()->id(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
         'units' => $units,
         'unit_price' => $unitPrice,
         'amount_paid' => $amount,
@@ -409,7 +478,7 @@ Route::post('/units/buy', function (Illuminate\Http\Request $request) {
 
 // Manage unit purchases (officers)
 Route::get('/units/manage', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
+    if (!request()->user()->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -418,7 +487,7 @@ Route::get('/units/manage', function () {
 })->name('units.manage');
 
 Route::post('/units/{id}/approve', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
+    if (!request()->user()->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -430,7 +499,7 @@ Route::post('/units/{id}/approve', function ($id) {
 
     $purchase->update([
         'status' => 'approved',
-        'approved_by' => auth()->id(),
+        'approved_by' => request()->user()->id,
         'approved_at' => now(),
     ]);
 
@@ -447,14 +516,16 @@ Route::post('/units/{id}/approve', function ($id) {
 })->name('units.approve');
 
 Route::post('/units/{id}/reject', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
+    $user = request()->user();
+
+    if (!$user || !$user->hasAnyRole(['admin', 'investment_officer', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
     $purchase = \App\Models\UnitPurchase::findOrFail($id);
     $purchase->update([
         'status' => 'rejected',
-        'approved_by' => auth()->id(),
+        'approved_by' => $user->id,
         'approved_at' => now(),
     ]);
 
@@ -463,8 +534,10 @@ Route::post('/units/{id}/reject', function ($id) {
 
 // List offerings (all members can view open ones)
 Route::get('/offerings', function () {
+    $user = request()->user();
+
     $offerings = \App\Models\InvestmentOffering::with('creator')
-        ->when(!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson']), function ($q) {
+        ->when(!$user || !$user->hasAnyRole(['admin', 'investment_officer', 'chairperson']), function ($q) {
             $q->whereIn('status', ['open', 'funded', 'closed']);
         })
         ->latest()
@@ -475,16 +548,21 @@ Route::get('/offerings', function () {
 
 // Create (officers only)
 Route::get('/offerings/create', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    $user = request()->user();
+
+    if (!$user || !$user->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
+
     return view('offerings.create', [
         'unit_price' => (float) \App\Models\Setting::get('unit_price', 100),
     ]);
 })->name('offerings.create');
 
 Route::post('/offerings', function (Illuminate\Http\Request $request) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    $user = $request->user();
+
+    if (!$user || !$user->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -522,7 +600,7 @@ Route::post('/offerings', function (Illuminate\Http\Request $request) {
         'start_date' => $validated['start_date'] ?? null,
         'maturity_date' => $validated['maturity_date'] ?? null,
         'status' => $validated['status'],
-        'created_by' => auth()->id(),
+        'created_by' => Auth::id(),
     ]);
 
     return redirect()->route('offerings')->with('message', 'Investment offering created.');
@@ -530,7 +608,9 @@ Route::post('/offerings', function (Illuminate\Http\Request $request) {
 
 // Open a draft offering
 Route::post('/offerings/{id}/open', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    $user = Auth::user();
+
+    if (!user_has_any_role($user, ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -542,7 +622,9 @@ Route::post('/offerings/{id}/open', function ($id) {
 
 // Close an offering
 Route::post('/offerings/{id}/close', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    $user = Auth::user();
+
+    if (!user_has_any_role($user, ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -555,16 +637,19 @@ Route::post('/offerings/{id}/close', function ($id) {
 // Show offering + pledge form
 Route::get('/offerings/{id}', function ($id) {
     $offering = \App\Models\InvestmentOffering::with('creator')->findOrFail($id);
+    $user = Auth::user();
 
-    if ($offering->status === 'draft' && !auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if ($offering->status === 'draft' && !user_has_any_role($user, ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
-    $generalUnits = optional(auth()->user()->investmentUnit)->total_units ?? 0;
-    $myCommitments = \App\Models\InvestmentCommitment::where('offering_id', $id)
-        ->where('user_id', auth()->id())
-        ->latest()
-        ->get();
+    $generalUnits = $user && $user->investmentUnit ? $user->investmentUnit->total_units : 0;
+    $myCommitments = $user
+        ? \App\Models\InvestmentCommitment::where('offering_id', $id)
+            ->where('user_id', $user->id)
+            ->latest()
+            ->get()
+        : collect();
 
     return view('offerings.show', compact('offering', 'generalUnits', 'myCommitments'));
 })->name('offerings.show');
@@ -577,7 +662,7 @@ Route::post('/offerings/{id}/pledge', function (Illuminate\Http\Request $request
         return back()->with('error', 'This offering is not open for pledges.');
     }
 
-    if (auth()->user()->is_suspended ?? false) {
+    if (($request->user()?->is_suspended ?? false)) {
         return back()->with('error', 'Your account is suspended.');
     }
 
@@ -586,10 +671,10 @@ Route::post('/offerings/{id}/pledge', function (Illuminate\Http\Request $request
     ]);
 
     $units = (float) $validated['units_pledged'];
-    $generalUnits = optional(auth()->user()->investmentUnit)->total_units ?? 0;
+    $generalUnits = optional($request->user()->investmentUnit)->total_units ?? 0;
 
     // Pending pledges already count against available units
-    $pendingUnits = \App\Models\InvestmentCommitment::where('user_id', auth()->id())
+    $pendingUnits = \App\Models\InvestmentCommitment::where('user_id', $request->user()->getAuthIdentifier())
         ->where('status', 'pending')
         ->sum('units_pledged');
 
@@ -601,7 +686,7 @@ Route::post('/offerings/{id}/pledge', function (Illuminate\Http\Request $request
 
     \App\Models\InvestmentCommitment::create([
         'offering_id' => $offering->id,
-        'user_id' => auth()->id(),
+        'user_id' => $request->user()->getAuthIdentifier(),
         'units_pledged' => $units,
         'status' => 'pending',
     ]);
@@ -611,7 +696,7 @@ Route::post('/offerings/{id}/pledge', function (Illuminate\Http\Request $request
 
 // Manage pledges (officers)
 Route::get('/commitments/manage', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -623,7 +708,7 @@ Route::get('/commitments/manage', function () {
 })->name('commitments.manage');
 
 Route::post('/commitments/{id}/approve', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -667,7 +752,7 @@ Route::post('/commitments/{id}/approve', function ($id) {
 
     $commitment->update([
         'status' => 'approved',
-        'approved_by' => auth()->id(),
+        'approved_by' => Auth::id(),
         'approved_at' => now(),
     ]);
 
@@ -685,14 +770,14 @@ Route::post('/commitments/{id}/approve', function ($id) {
 })->name('commitments.approve');
 
 Route::post('/commitments/{id}/reject', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
 
     $commitment = \App\Models\InvestmentCommitment::findOrFail($id);
     $commitment->update([
         'status' => 'rejected',
-        'approved_by' => auth()->id(),
+        'approved_by' => Auth::id(),
         'approved_at' => now(),
     ]);
 
@@ -701,7 +786,7 @@ Route::post('/commitments/{id}/reject', function ($id) {
 
 // Discover & list
 Route::get('/teams', function () {
-    $joinedIds = auth()->user()->communityMemberships()
+    $joinedIds = \App\Models\CommunityMember::where('user_id', Auth::id())
         ->whereIn('status', ['active', 'pending'])
         ->pluck('community_id');
 
@@ -725,7 +810,7 @@ Route::get('/teams', function () {
 })->middleware('auth')->name('teams.index');
 
 Route::get('/teams/mine', function () {
-    $memberships = auth()->user()->communityMemberships()
+    $memberships = \App\Models\CommunityMember::where('user_id', Auth::id())
         ->with('community')
         ->where('status', 'active')
         ->latest()
@@ -757,7 +842,7 @@ Route::post('/teams', function (Illuminate\Http\Request $request) {
         'name' => $validated['name'],
         'description' => $validated['description'] ?? null,
         'cover_image' => $cover,
-        'created_by' => auth()->id(),
+        'created_by' => $request->user()->id,
         'visibility' => $validated['visibility'],
         'is_discoverable' => $isPublic,
         'member_limit' => $validated['member_limit'] ?? null,
@@ -767,7 +852,7 @@ Route::post('/teams', function (Illuminate\Http\Request $request) {
 
     \App\Models\CommunityMember::create([
         'community_id' => $community->id,
-        'user_id' => auth()->id(),
+        'user_id' => $request->user()->id,
         'role' => 'admin',
         'status' => 'active',
         'joined_at' => now(),
@@ -781,9 +866,9 @@ Route::post('/teams', function (Illuminate\Http\Request $request) {
 // Show (members only for full content)
 Route::get('/teams/{slug}', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    $isMember = $team->isMember(auth()->user());
-    $isAdmin = $team->isAdmin(auth()->user());
-    $membership = $team->members()->where('user_id', auth()->id())->first();
+    $isMember = $team->isMember(\Illuminate\Support\Facades\Auth::user());
+    $isAdmin = $team->isAdmin(\Illuminate\Support\Facades\Auth::user());
+    $membership = $team->members()->where('user_id', request()->user()?->id)->first();
 
     $members = $isMember
         ? $team->activeMembers()->with('user')->get()
@@ -808,7 +893,7 @@ Route::post('/teams/{slug}/join', function ($slug) {
         return back()->with('error', 'This team is full.');
     }
 
-    $existing = $team->members()->where('user_id', auth()->id())->first();
+    $existing = $team->members()->where('user_id', request()->user()?->id)->first();
 
     if ($existing) {
         if ($existing->status === 'active') {
@@ -822,15 +907,18 @@ Route::post('/teams/{slug}/join', function ($slug) {
     } else {
         \App\Models\CommunityMember::create([
             'community_id' => $team->id,
-            'user_id' => auth()->id(),
+            'user_id' => request()->user()?->id,
             'role' => 'member',
             'status' => 'pending',
         ]);
     }
 
-    $admins = $team->members()->where('status', 'active')->where('role', 'admin')->with('user')->get();
+    $admins = $team->members()->where('status', 'active')->where('role', 'admin')->get();
     foreach ($admins as $admin) {
-        $admin->user->notify(new \App\Notifications\JoinRequestReceived($team, auth()->user()));
+        $adminUser = \App\Models\User::find($admin->user_id);
+        if ($adminUser) {
+            $adminUser->notify(new \App\Notifications\JoinRequestReceived($team, request()->user()));
+        }
     }
 
     return back()->with('message', 'Join request sent. Waiting for admin approval.');
@@ -839,24 +927,25 @@ Route::post('/teams/{slug}/join', function ($slug) {
 // Approve / reject join
 Route::post('/teams/{slug}/members/{memberId}/approve', function ($slug, $memberId) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isAdmin(auth()->user())) abort(403);
+    if (!$team->isAdmin(request()->user())) abort(403);
 
     if ($team->isFull()) {
         return back()->with('error', 'Team is full. Raise the limit before approving.');
     }
 
     $member = $team->members()->where('id', $memberId)->where('status', 'pending')->firstOrFail();
+    $memberUser = \App\Models\User::findOrFail($member->user_id);
     $member->update(['status' => 'active', 'joined_at' => now()]);
     $team->increment('members_count');
 
-    $member->user->notify(new \App\Notifications\JoinRequestResolved($team, 'approved'));
-    $member->user->notify(new \App\Notifications\TeamJoinApproved($team));
+    $memberUser->notify(new \App\Notifications\JoinRequestResolved($team, 'approved'));
+    $memberUser->notify(new \App\Notifications\TeamJoinApproved($team));
 
     \App\Models\Activity::log([
         'user_id' => $member->user_id,
         'community_id' => $team->id,
         'type' => 'member_joined',
-        'title' => $member->user->name . ' joined ' . $team->name,
+        'title' => $memberUser->name . ' joined ' . $team->name,
         'url' => route('teams.feed', $team->slug),
     ]);
 
@@ -867,12 +956,13 @@ Route::post('/teams/{slug}/members/{memberId}/approve', function ($slug, $member
 
 Route::post('/teams/{slug}/members/{memberId}/reject', function ($slug, $memberId) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isAdmin(auth()->user())) abort(403);
+    if (!$team->isAdmin(request()->user())) abort(403);
 
     $member = $team->members()->where('id', $memberId)->where('status', 'pending')->firstOrFail();
+    $memberUser = \App\Models\User::findOrFail($member->user_id);
     $member->update(['status' => 'rejected']);
 
-    $member->user->notify(new \App\Notifications\JoinRequestResolved($team, 'rejected'));
+    $memberUser->notify(new \App\Notifications\JoinRequestResolved($team, 'rejected'));
 
     return back()->with('message', 'Request rejected.');
 })->name('teams.members.reject');
@@ -881,23 +971,25 @@ Route::post('/teams/{slug}/members/{memberId}/reject', function ($slug, $memberI
 Route::post('/teams/{slug}/members/{memberId}/make-admin', function ($slug, $memberId) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
 
-    if (!$team->isAdmin(auth()->user())) {
+    if (!$team->isAdmin(request()->user())) {
         abort(403);
     }
 
     $member = $team->members()->where('id', $memberId)->where('status', 'active')->firstOrFail();
+    $memberUser = \App\Models\User::findOrFail($member->user_id);
     $member->update(['role' => 'admin']);
 
-    return back()->with('message', $member->user->name . ' is now an admin.');
+    return back()->with('message', $memberUser->name . ' is now an admin.');
 })->name('teams.members.make-admin');
 
 // List projects in a team (members only)
 Route::get('/teams/{slug}/projects', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isMember(auth()->user())) abort(403);
+    $user = \Illuminate\Support\Facades\Auth::user();
+    if (!$user || !$team->isMember($user)) abort(403);
 
     $projects = $team->projects()->with('vault', 'creator')->latest()->get();
-    $isAdmin = $team->isAdmin(auth()->user());
+    $isAdmin = $team->isAdmin($user);
 
     return view('projects.index', compact('team', 'projects', 'isAdmin'));
 })->name('projects.index');
@@ -905,14 +997,16 @@ Route::get('/teams/{slug}/projects', function ($slug) {
 // Create project
 Route::get('/teams/{slug}/projects/create', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isMember(auth()->user())) abort(403);
+    $user = \Illuminate\Support\Facades\Auth::user();
+    if (!$user || !$team->isMember($user)) abort(403);
 
     return view('projects.create', compact('team'));
 })->name('projects.create');
 
 Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request, $slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isMember(auth()->user())) abort(403);
+    $user = \Illuminate\Support\Facades\Auth::user();
+    if (!$user || !$team->isMember($user)) abort(403);
 
     $validated = $request->validate([
         'title' => 'required|string|max:200',
@@ -934,7 +1028,7 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
 
     $project = \App\Models\Project::create([
         'community_id' => $team->id,
-        'creator_id' => auth()->id(),
+        'creator_id' => $user->id,
         'title' => $validated['title'],
         'description' => $validated['description'] ?? null,
         'goal_amount' => $validated['goal_amount'],
@@ -958,11 +1052,11 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
     ]);
 
     \App\Models\Activity::log([
-        'user_id' => auth()->id(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
         'community_id' => $team->id,
         'project_id' => $project->id,
         'type' => 'project_created',
-        'title' => auth()->user()->name . ' launched “' . $project->title . '”',
+        'title' => \Illuminate\Support\Facades\Auth::user()->name . ' launched “' . $project->title . '”',
         'body' => 'Goal ₦' . number_format($project->goal_amount, 0),
         'url' => route('projects.show', [$team->slug, $project->id]),
     ]);
@@ -974,16 +1068,17 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
 // Show project
 Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isMember(auth()->user())) abort(403);
+    if (!$team->isMember(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
     $project = $team->projects()->with(['vault', 'creator'])->findOrFail($id);
     $contributions = $project->contributions()->with('user')->latest()->get();
-    $isAdmin = $team->isAdmin(auth()->user());
-    $isCreator = $project->creator_id === auth()->id();
+    $currentUserId = \Illuminate\Support\Facades\Auth::id();
+    $isAdmin = $team->isAdmin(\Illuminate\Support\Facades\Auth::user());
+    $isCreator = $project->creator_id === $currentUserId;
     $pendingAction = $project->vaultActions()->with(['votes.user', 'requester'])->where('status', 'pending')->first();
-    $isDonor = $project->confirmedContributions()->where('user_id', auth()->id())->exists();
+    $isDonor = $project->confirmedContributions()->where('user_id', $currentUserId)->exists();
     $myVote = $pendingAction
-        ? $pendingAction->votes->firstWhere('user_id', auth()->id())
+        ? $pendingAction->votes->firstWhere('user_id', $currentUserId)
         : null;
     $donorCount = $project->confirmedContributions()->distinct('user_id')->count('user_id');
 
@@ -998,7 +1093,8 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Contribute
     Route::post('/teams/{slug}/projects/{id}/contribute', function (Illuminate\Http\Request $request, $slug, $id) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        $currentUser = \Illuminate\Support\Facades\Auth::user();
+        if (!$team->isMember($currentUser)) abort(403);
 
         $project = $team->projects()->with(['vault', 'community'])->findOrFail($id);
 
@@ -1018,7 +1114,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $contribution = \App\Models\ProjectContribution::create([
             'project_id' => $project->id,
-            'user_id' => auth()->id(),
+            'user_id' => $currentUser->id,
             'amount' => $validated['amount'],
             'proof_of_payment' => $path,
             'proof_path' => $path,
@@ -1030,10 +1126,13 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         $notifyUsers = collect([$project->creator]);
         $admins = $team->members()->where('status', 'active')->where('role', 'admin')->with('user')->get();
         foreach ($admins as $a) {
-            $notifyUsers->push($a->user);
+            $adminUser = $a->user()->first();
+            if ($adminUser) {
+                $notifyUsers->push($adminUser);
+            }
         }
-        $notifyUsers->unique('id')->each(function ($user) use ($contribution) {
-            if ($user->id !== auth()->id()) {
+        $notifyUsers->unique('id')->each(function ($user) use ($contribution, $currentUser) {
+            if ($user->id !== $currentUser->id) {
                 $user->notify(new \App\Notifications\ProjectContributionSubmitted($contribution));
             }
         });
@@ -1053,7 +1152,9 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
             return back()->with('error', 'Project ' . $projectId . ' is not on this team.');
         }
 
-        if (!$team->isAdmin(auth()->user()) && $project->creator_id !== auth()->id()) {
+        $currentUser = \Illuminate\Support\Facades\Auth::user();
+
+        if (!$team->isAdmin($currentUser) && $project->creator_id !== ($currentUser?->id ?? null)) {
             abort(403);
         }
 
@@ -1071,7 +1172,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $contribution->update([
             'status' => 'confirmed',
-            'confirmed_by' => auth()->id(),
+            'confirmed_by' => \Illuminate\Support\Facades\Auth::id(),
             'confirmed_at' => now(),
         ]);
 
@@ -1091,7 +1192,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
                         if (!$already) {
                 \App\Models\Activity::log([
-                    'user_id' => auth()->id(),
+                    'user_id' => \Illuminate\Support\Facades\Auth::id(),
                     'community_id' => $team->id,
                     'project_id' => $project->id,
                     'type' => 'milestone',
@@ -1140,7 +1241,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
                 if (!$already) {
                     \App\Models\Activity::log([
-                        'user_id' => auth()->id(),
+                        'user_id' => \Illuminate\Support\Facades\Auth::id(),
                         'community_id' => $team->id,
                         'type' => 'milestone',
                         'title' => $title,
@@ -1180,7 +1281,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
         $project = $team->projects()->findOrFail($projectId);
 
-        if (!$team->isAdmin(auth()->user()) && $project->creator_id !== auth()->id()) {
+        if (!$team->isAdmin(\Illuminate\Support\Facades\Auth::user()) && $project->creator_id !== \Illuminate\Support\Facades\Auth::id()) {
             abort(403);
         }
 
@@ -1205,11 +1306,11 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Creator requests claim or terminate
     Route::post('/teams/{slug}/projects/{id}/actions', function (Illuminate\Http\Request $request, $slug, $id) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        if (!$team->isMember(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
         $project = $team->projects()->with('vault')->findOrFail($id);
 
-        if ($project->creator_id !== auth()->id()) {
+        if ($project->creator_id !== \Illuminate\Support\Facades\Auth::id()) {
             abort(403, 'Only the project creator can request this.');
         }
 
@@ -1243,7 +1344,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $action = \App\Models\VaultAction::create([
             'project_id' => $project->id,
-            'requested_by' => auth()->id(),
+            'requested_by' => $request->user()->id,
             'type' => $validated['type'],
             'amount' => $amount,
             'note' => $validated['note'] ?? null,
@@ -1265,13 +1366,13 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Donor votes
     Route::post('/teams/{slug}/projects/{projectId}/actions/{actionId}/vote', function (Illuminate\Http\Request $request, $slug, $projectId, $actionId) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        if (!$team->isMember($request->user())) abort(403);
 
         $project = $team->projects()->with('vault')->findOrFail($projectId);
         $action = $project->vaultActions()->where('id', $actionId)->where('status', 'pending')->firstOrFail();
 
         $isDonor = $project->confirmedContributions()
-            ->where('user_id', auth()->id())
+            ->where('user_id', $request->user()->getAuthIdentifier())
             ->exists();
 
         if (!$isDonor) {
@@ -1285,7 +1386,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         \App\Models\VaultActionVote::updateOrCreate(
             [
                 'vault_action_id' => $action->id,
-                'user_id' => auth()->id(),
+                'user_id' => $request->user()->getAuthIdentifier(),
             ],
             ['vote' => $validated['vote']]
         );
@@ -1349,7 +1450,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         if ($action->type !== 'terminate') {
             \App\Models\Activity::log([
-                'user_id' => auth()->id(),
+                'user_id' => request()->user()->getAuthIdentifier(),
                 'community_id' => $team->id,
                 'type' => 'milestone',
                 'title' => 'Project completed: ' . $project->title,
@@ -1387,7 +1488,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         $project = $team->projects()->findOrFail($projectId);
         $action = $project->vaultActions()->where('id', $actionId)->where('status', 'pending')->firstOrFail();
 
-        if ($action->requested_by !== auth()->id()) {
+        if ($action->requested_by !== request()->user()->getAuthIdentifier()) {
             abort(403);
         }
 
@@ -1406,9 +1507,9 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Feed (members only)
     Route::get('/teams/{slug}/feed', function ($slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        if (!$team->isMember(request()->user())) abort(403);
 
-        $isAdmin = $team->isAdmin(auth()->user());
+        $isAdmin = $team->isAdmin(request()->user());
 
         $feed = \App\Models\Activity::with([
             'user',
@@ -1434,7 +1535,8 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
    Route::post('/teams/{slug}/feed', function (\Illuminate\Http\Request $request, $slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        $user = $request->user();
+        if (!$team->isMember($user)) abort(403);
 
         $validated = $request->validate([
             'body' => 'required|string|min:1|max:1000',
@@ -1449,42 +1551,42 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $post = \App\Models\CommunityPost::create([
             'community_id' => $team->id,
-            'user_id' => auth()->id(),
+            'user_id' => $user->id,
             'body' => trim($validated['body']),
             'attachment' => $path,
         ]);
 
         $activity = \App\Models\Activity::log([
-            'user_id' => auth()->id(),
+            'user_id' => $user->id,
             'community_id' => $team->id,
             'type' => 'post',
-            'title' => auth()->user()->name . ' posted in ' . $team->name,
+            'title' => $user->name . ' posted in ' . $team->name,
             'body' => $post->body,
             'url' => route('teams.feed', $team->slug),
             'attachment' => $path,
         ]);
 
-        \App\Support\Mentions::notify($post->body, $activity, auth()->user());
+        \App\Support\Mentions::notify($post->body, $activity, $user);
 
         $parentId = $activity->id;
         foreach (array_filter(array_map('trim', $validated['thread'] ?? [])) as $text) {
             \App\Models\CommunityPost::create([
                 'community_id' => $team->id,
-                'user_id' => auth()->id(),
+                'user_id' => $user->id,
                 'body' => $text,
             ]);
 
             $next = \App\Models\Activity::log([
-                'user_id' => auth()->id(),
+                'user_id' => $user->id,
                 'community_id' => $team->id,
                 'type' => 'thread',
-                'title' => auth()->user()->name . ' continued a thread',
+                'title' => $user->name . ' continued a thread',
                 'body' => $text,
                 'parent_id' => $parentId,
                 'url' => route('activities.show', $activity),
             ]);
 
-            \App\Support\Mentions::notify($text, $next, auth()->user());
+            \App\Support\Mentions::notify($text, $next, $user);
             $parentId = $next->id;
         }
 
@@ -1493,12 +1595,12 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
     Route::delete('/teams/{slug}/feed/{postId}', function ($slug, $postId) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(auth()->user())) abort(403);
+        if (!$team->isMember(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
         $post = $team->posts()->where('id', $postId)->firstOrFail();
 
         // Author or admin can delete
-        if ($post->user_id !== auth()->id() && !$team->isAdmin(auth()->user())) {
+        if ($post->user_id !== \Illuminate\Support\Facades\Auth::id() && !$team->isAdmin(\Illuminate\Support\Facades\Auth::user())) {
             abort(403);
         }
 
@@ -1509,7 +1611,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
     Route::post('/teams/{slug}/invite', function (Illuminate\Http\Request $request, $slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isAdmin(auth()->user())) abort(403);
+        if (!$team->isAdmin(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
         $validated = $request->validate([
             'email' => 'required|email|exists:users,email',
@@ -1526,18 +1628,18 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
             [
                 'role' => 'member',
                 'status' => 'pending',
-                'invited_by' => auth()->id(),
+                'invited_by' => \Illuminate\Support\Facades\Auth::id(),
             ]
         );
 
         // Notify the invited user
-        $user->notify(new \App\Notifications\TeamInviteReceived($team, auth()->user()));
+        $user->notify(new \App\Notifications\TeamInviteReceived($team, \Illuminate\Support\Facades\Auth::user()));
 
         $invited = \App\Models\User::where('email', $request->email)->first();
             if ($invited && $invited->phone && $invited->phone_verified_at && $invited->whatsapp_opt_in === 'on') {
                 app(\App\Services\WhatsAppService::class)->sendText(
                     $invited->phone,
-                    'Ajo: ' . auth()->user()->name . ' invited you to ' . $team->name . '. ' . route('invite.team.public', $team->slug)
+                    'Ajo: ' . \Illuminate\Support\Facades\Auth::user()->name . ' invited you to ' . $team->name . '. ' . route('invite.team.public', $team->slug)
                 );
             }
 
@@ -1545,7 +1647,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
   })->middleware('throttle:invite')->name('teams.invite');
 
     Route::get('/admin/fees', function () {
-        if (!auth()->user()->hasRole('admin')) {
+        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') {
             abort(403);
         }
 
@@ -1558,7 +1660,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     })->name('admin.fees');
 
     Route::get('/admin/settings', function () {
-        if (!auth()->user()->hasRole('admin')) abort(403);
+        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') abort(403);
 
         return view('admin.settings', [
             'bank_name' => \App\Models\Setting::get('bank_name', ''),
@@ -1569,7 +1671,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     })->name('admin.settings');
 
     Route::post('/admin/settings', function (Illuminate\Http\Request $request) {
-        if (!auth()->user()->hasRole('admin')) abort(403);
+        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') abort(403);
 
         $validated = $request->validate([
             'bank_name' => 'required|string|max:100',
@@ -1587,7 +1689,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
     Route::get('/my-contributions', function () {
         $contributions = \App\Models\ProjectContribution::with(['project.community', 'project.vault'])
-            ->where('user_id', auth()->id())
+            ->where('user_id', \Illuminate\Support\Facades\Auth::id())
             ->latest()
             ->get();
 
@@ -1602,14 +1704,14 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         Route::get('/teams/{slug}/bank', function ($slug) {
             $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-            if (!$team->isAdmin(auth()->user())) abort(403);
+            if (!$team->isAdmin(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
             return view('teams.bank', compact('team'));
         })->name('teams.bank');
 
     Route::post('/teams/{slug}/bank', function (Illuminate\Http\Request $request, $slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isAdmin(auth()->user())) abort(403);
+        if (!$team->isAdmin(\Illuminate\Support\Facades\Auth::user())) abort(403);
 
         $validated = $request->validate([
             'bank_name' => 'nullable|string|max:100',
@@ -1631,7 +1733,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $members = $team->activeMembers()->with('user')->get();
         foreach ($members as $m) {
-            if ($m->user_id !== auth()->id()) {
+            if ($m->user_id !== \Illuminate\Support\Facades\Auth::id()) {
                 $m->user->notify(new \App\Notifications\TeamBankUpdated($team, $mode));
             }
         }
@@ -1654,13 +1756,14 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Public-ish: must be logged in
     Route::get('/teams/{slug}/join-link', function ($slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
+        $user = \App\Models\User::findOrFail(\Illuminate\Support\Facades\Auth::id());
 
-        if ($team->isMember(auth()->user())) {
+        if ($team->isMember($user)) {
             return redirect()->route('teams.feed', $team->slug)
                 ->with('message', 'You are already a member of this team.');
         }
 
-        $existing = $team->members()->where('user_id', auth()->id())->first();
+        $existing = $team->members()->where('user_id', $user->id)->first();
 
         if ($existing && $existing->status === 'pending') {
             return redirect()->route('teams.show', $slug)
@@ -1672,16 +1775,20 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         } else {
             \App\Models\CommunityMember::create([
                 'community_id' => $team->id,
-                'user_id' => auth()->id(),
+                'user_id' => $user->id,
                 'role' => 'member',
                 'status' => 'pending',
             ]);
         }
 
         // Notify admins (reuse JoinRequestReceived)
-        $admins = $team->members()->where('status', 'active')->where('role', 'admin')->with('user')->get();
+        $admins = $team->members()->where('status', 'active')->where('role', 'admin')->get();
         foreach ($admins as $admin) {
-            $admin->user->notify(new \App\Notifications\JoinRequestReceived($team, auth()->user()));
+            $adminUser = \App\Models\User::find($admin->user_id);
+
+            if ($adminUser) {
+                $adminUser->notify(new \App\Notifications\JoinRequestReceived($team, $user));
+            }
         }
 
         return redirect()
@@ -1692,8 +1799,9 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     Route::get('/teams/{slug}/projects/{id}/invite-link', function ($slug, $id) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     $project = $team->projects()->findOrFail($id);
+    $user = \App\Models\User::findOrFail(request()->user()->getAuthIdentifier());
 
-    if (! $team->isMember(auth()->user())) {
+    if (! $team->isMember($user)) {
         // Remember project so join-link can continue here after they become a member
         session([
             'url.intended' => route('projects.show', [$slug, $id]),
@@ -1712,15 +1820,16 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Like toggle
     Route::post('/activities/{id}/like', function ($id) {
         $activity = \App\Models\Activity::with('user')->findOrFail($id);
+        $user = Auth::user();
 
-        $myTeamIds = auth()->user()->communityMemberships()
+        $myTeamIds = \App\Models\CommunityMember::where('user_id', $user->id)
             ->where('status', 'active')->pluck('community_id');
         if ($activity->community_id && !$myTeamIds->contains($activity->community_id)) {
             abort(403);
         }
 
         $like = \App\Models\ActivityLike::where('activity_id', $id)
-            ->where('user_id', auth()->id())
+            ->where('user_id', $user->id)
             ->first();
 
         if ($like) {
@@ -1730,13 +1839,13 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         } else {
             \App\Models\ActivityLike::create([
                 'activity_id' => $id,
-                'user_id' => auth()->id(),
+                'user_id' => $user->id,
             ]);
             $liked = true;
             $message = 'Liked.';
 
-            if ($activity->user_id !== auth()->id() && $activity->user) {
-                $activity->user->notify(new \App\Notifications\ActivityLiked($activity, auth()->user()));
+            if ($activity->user_id !== $user->id && $activity->user) {
+                $activity->user->notify(new \App\Notifications\ActivityLiked($activity, $user));
             }
         }
 
@@ -1755,8 +1864,9 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Comment
     Route::post('/activities/{id}/comment', function (Illuminate\Http\Request $request, $id) {
         $activity = \App\Models\Activity::with('user')->findOrFail($id);
+        $user = Auth::user();
 
-        $myTeamIds = auth()->user()->communityMemberships()
+        $myTeamIds = \App\Models\CommunityMember::where('user_id', $user->id)
             ->where('status', 'active')->pluck('community_id');
         if ($activity->community_id && !$myTeamIds->contains($activity->community_id)) {
             abort(403);
@@ -1768,15 +1878,15 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $comment = \App\Models\ActivityComment::create([
             'activity_id' => $activity->id,
-            'user_id' => auth()->id(),
+            'user_id' => $user->id,
             'body' => $validated['body'],
         ]);
         $comment->load('user');
 
-        \App\Support\Mentions::notify($validated['body'], $activity, auth()->user());
+        \App\Support\Mentions::notify($validated['body'], $activity, $user);
 
-        if ($activity->user_id !== auth()->id() && $activity->user) {
-            $activity->user->notify(new \App\Notifications\ActivityCommented($activity, auth()->user()));
+        if ($activity->user_id !== $user->id && $activity->user) {
+            $activity->user->notify(new \App\Notifications\ActivityCommented($activity, $user));
         }
 
         if (request()->expectsJson() || request()->ajax() || str_contains(request()->header('Accept', ''), 'application/json')) {
@@ -1798,15 +1908,16 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
     Route::post('/activities/{id}/repost', function ($id) {
     $original = \App\Models\Activity::with('user')->findOrFail($id);
+    $user = Auth::user();
 
-    $myTeamIds = auth()->user()->communityMemberships()
+    $myTeamIds = \App\Models\CommunityMember::where('user_id', $user->id)
         ->where('status', 'active')->pluck('community_id');
     if ($original->community_id && !$myTeamIds->contains($original->community_id)) {
         abort(403);
     }
 
     $existing = \App\Models\Activity::where('parent_id', $original->id)
-        ->where('user_id', auth()->id())
+        ->where('user_id', $user->id)
         ->where('type', 'repost')
         ->first();
 
@@ -1815,19 +1926,19 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         $reposted = false;
     } else {
         \App\Models\Activity::log([
-            'user_id' => auth()->id(),
+            'user_id' => $user->id,
             'community_id' => $original->community_id,
             'project_id' => $original->project_id,
             'parent_id' => $original->id,
             'type' => 'repost',
-            'title' => auth()->user()->name . ' reposted',
+            'title' => $user->name . ' reposted',
             'body' => $original->title ?: $original->body,
             'url' => $original->url,
         ]);
         $reposted = true;
 
-        if ($original->user_id !== auth()->id() && $original->user) {
-            $original->user->notify(new \App\Notifications\ActivityReposted($original, auth()->user()));
+        if ($original->user_id !== $user->id && $original->user) {
+            $original->user->notify(new \App\Notifications\ActivityReposted($original, $user));
         }
     }
 
@@ -1850,9 +1961,12 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     // Quote
     Route::post('/activities/{id}/quote', function (Illuminate\Http\Request $request, $id) {
         $original = \App\Models\Activity::with('user')->findOrFail($id);
+        $user = Auth::user();
 
-        $myTeamIds = auth()->user()->communityMemberships()
-            ->where('status', 'active')->pluck('community_id');
+        $myTeamIds = \Illuminate\Support\Facades\DB::table('community_memberships')
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->pluck('community_id');
         if ($original->community_id && !$myTeamIds->contains($original->community_id)) {
             abort(403);
         }
@@ -1862,21 +1976,21 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         ]);
 
         $activity = \App\Models\Activity::log([
-            'user_id' => auth()->id(),
+            'user_id' => $user->id,
             'community_id' => $original->community_id,
             'project_id' => $original->project_id,
             'parent_id' => $original->id,
             'type' => 'quote',
-            'title' => auth()->user()->name . ' quoted',
+            'title' => $user->name . ' quoted',
             'body' => $original->title,
             'quote_body' => $validated['quote_body'],
             'url' => $original->url,
         ]);
 
-        \App\Support\Mentions::notify($validated['quote_body'], $original, auth()->user());
+        \App\Support\Mentions::notify($validated['quote_body'], $original, $user);
 
-        if ($original->user_id !== auth()->id() && $original->user) {
-            $original->user->notify(new \App\Notifications\ActivityQuoted($original, auth()->user()));
+        if ($original->user_id !== $user->id && $original->user) {
+            $original->user->notify(new \App\Notifications\ActivityQuoted($original, $user));
         }
 
         if (request()->expectsJson() || request()->ajax() || str_contains(request()->header('Accept', ''), 'application/json')) {
@@ -1890,20 +2004,26 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     })->name('activities.quote');
 
     Route::get('/notifications', function () {
-        $notifications = auth()->user()->notifications()->latest()->paginate(20);
-        auth()->user()->unreadNotifications->markAsRead();
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+        $notifications = $user->notifications()->latest()->paginate(20);
+        $user->unreadNotifications->markAsRead();
         return view('notifications.index', compact('notifications'));
     })->name('notifications.index');
 
     Route::get('/notifications/{id}/read', function ($id) {
-        $notification = auth()->user()->notifications()->where('id', $id)->firstOrFail();
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+        $notification = $user->notifications()->where('id', $id)->firstOrFail();
         $notification->markAsRead();
         $url = $notification->data['url'] ?? route('dashboard');
         return redirect($url);
     })->name('notifications.read');
 
     Route::post('/notifications/{id}/read', function ($id) {
-        $notification = auth()->user()->notifications()->where('id', $id)->firstOrFail();
+        /** @var \App\Models\User $user */
+        $user = Auth::user();
+        $notification = $user->notifications()->where('id', $id)->firstOrFail();
         $notification->markAsRead();
 
         return back();
@@ -1944,7 +2064,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
                 ->get();
 
             // Only show people who share a team with you (privacy)
-            $myTeamIds = auth()->user()->communityMemberships()
+            $myTeamIds = request()->user()->communityMemberships()
                 ->where('status', 'active')
                 ->pluck('community_id');
 
@@ -2003,22 +2123,22 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
             : null;
 
         $first = \App\Models\Activity::log([
-            'user_id' => auth()->id(),
+            'user_id' => $request->user()->getAuthIdentifier(),
             'community_id' => null,
             'type' => 'post',
-            'title' => auth()->user()->name . ' shared an update',
+            'title' => $request->user()->name . ' shared an update',
             'body' => trim($validated['body']),
-            'url' => route('users.show', auth()->id()),
+            'url' => route('users.show', $request->user()->getAuthIdentifier()),
             'attachment' => $path,
         ]);
 
         $parentId = $first->id;
         foreach (array_filter(array_map('trim', $validated['thread'] ?? [])) as $text) {
             $next = \App\Models\Activity::log([
-                'user_id' => auth()->id(),
+                'user_id' => $request->user()->getAuthIdentifier(),
                 'community_id' => null,
                 'type' => 'thread',
-                'title' => auth()->user()->name . ' continued a thread',
+                'title' => $request->user()->name . ' continued a thread',
                 'body' => $text,
                 'parent_id' => $parentId,
                 'url' => route('activities.show', $first),
@@ -2029,13 +2149,18 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         return redirect()->route('dashboard')->with('message', 'Posted to your wall.');
     })->name('dashboard.posts.store');
 
-Route::post('/friends/{user}/request', function (\App\Models\User $user) {
-    abort_if($user->id === auth()->id(), 403);
+Route::post('/friends/{user}/request', function ($user) {
+    /** @var \App\Models\User $user */
+    $user = \App\Models\User::query()->findOrFail($user);
 
-    $exists = \App\Models\Friendship::where(function ($q) use ($user) {
-        $q->where('user_id', auth()->id())->where('friend_id', $user->id);
-    })->orWhere(function ($q) use ($user) {
-        $q->where('user_id', $user->id)->where('friend_id', auth()->id());
+    $authUserId = \Illuminate\Support\Facades\Auth::id();
+
+    abort_if((int) $user->id === (int) $authUserId, 403);
+
+    $exists = \App\Models\Friendship::where(function ($q) use ($authUserId, $user) {
+        $q->where('user_id', $authUserId)->where('friend_id', $user->id);
+    })->orWhere(function ($q) use ($authUserId, $user) {
+        $q->where('user_id', $user->id)->where('friend_id', $authUserId);
     })->first();
 
     if ($exists) {
@@ -2043,17 +2168,17 @@ Route::post('/friends/{user}/request', function (\App\Models\User $user) {
     }
 
     \App\Models\Friendship::create([
-        'user_id' => auth()->id(),
+        'user_id' => $authUserId,
         'friend_id' => $user->id,
         'status' => 'pending',
     ]);
 
-    $user->notify(new \App\Notifications\FriendRequestReceived(auth()->user()));
+    $user->notify(new \App\Notifications\FriendRequestReceived(\Illuminate\Support\Facades\Auth::user()));
 
     if ($user->phone && $user->phone_verified_at && $user->whatsapp_opt_in === 'on') {
         app(\App\Services\WhatsAppService::class)->sendText(
             $user->phone,
-            'Ajo: ' . auth()->user()->name . ' sent you a friend request.'
+            'Ajo: ' . \Illuminate\Support\Facades\Auth::user()->name . ' sent you a friend request.'
         );
     }
 
@@ -2061,18 +2186,18 @@ Route::post('/friends/{user}/request', function (\App\Models\User $user) {
 })->middleware('throttle:friend-request')->name('friends.request');
 
 Route::post('/friends/{friendship}/accept', function (\App\Models\Friendship $friendship) {
-    abort_unless($friendship->friend_id === auth()->id() && $friendship->status === 'pending', 403);
+    abort_unless($friendship->friend_id === \Illuminate\Support\Facades\Auth::id() && $friendship->status === 'pending', 403);
 
     $friendship->update(['status' => 'accepted', 'accepted_at' => now()]);
 
     $sender = \App\Models\User::find($friendship->user_id);
-    $sender?->notify(new \App\Notifications\FriendRequestAccepted(auth()->user()));
+    $sender?->notify(new \App\Notifications\FriendRequestAccepted(\Illuminate\Support\Facades\Auth::user()));
 
     return back()->with('message', 'Friend request accepted.');
 })->name('friends.accept');
 
 Route::post('/friends/{friendship}/decline', function (\App\Models\Friendship $friendship) {
-    abort_unless($friendship->friend_id === auth()->id() && $friendship->status === 'pending', 403);
+    abort_unless($friendship->friend_id === \Illuminate\Support\Facades\Auth::id() && $friendship->status === 'pending', 403);
 
     $friendship->delete();
 
@@ -2081,7 +2206,7 @@ Route::post('/friends/{friendship}/decline', function (\App\Models\Friendship $f
 
 Route::delete('/friends/{friendship}/cancel', function (\App\Models\Friendship $friendship) {
     abort_unless(
-        $friendship->user_id === auth()->id() && $friendship->status === 'pending',
+        $friendship->user_id === \Illuminate\Support\Facades\Auth::id() && $friendship->status === 'pending',
         403
     );
 
@@ -2092,22 +2217,39 @@ Route::delete('/friends/{friendship}/cancel', function (\App\Models\Friendship $
 
 Route::delete('/friends/{user}', function (\App\Models\User $user) {
     \App\Models\Friendship::where(function ($q) use ($user) {
-        $q->where('user_id', auth()->id())->where('friend_id', $user->id);
+        $q->where('user_id', \Illuminate\Support\Facades\Auth::id())->where('friend_id', $user->id);
     })->orWhere(function ($q) use ($user) {
-        $q->where('user_id', $user->id)->where('friend_id', auth()->id());
+        $q->where('user_id', $user->id)->where('friend_id', \Illuminate\Support\Facades\Auth::id());
     })->delete();
     return back()->with('message', 'Removed from friends.');
 })->name('friends.destroy');
 
 Route::get('/friends', function () {
-    $ids = auth()->user()->friendIds();
+    $userId = \Illuminate\Support\Facades\Auth::id();
+    $ids = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($query) use ($userId) {
+            $query->where('user_id', $userId)->orWhere('friend_id', $userId);
+        })
+        ->get(['user_id', 'friend_id'])
+        ->map(fn ($friendship) => $friendship->user_id === $userId
+            ? $friendship->friend_id
+            : $friendship->user_id);
     $friends = \App\Models\User::whereIn('id', $ids)->orderBy('name')->get();
     $pending = \App\Models\Friendship::with('requester')
-        ->where('friend_id', auth()->id())
+        ->where('friend_id', \Illuminate\Support\Facades\Auth::id())
         ->where('status', 'pending')
         ->latest()
         ->get();
-    $suggestions = auth()->user()->suggestedFriends(8);
+    $excludedIds = \App\Models\Friendship::where(function ($query) use ($userId) {
+        $query->where('user_id', $userId)->orWhere('friend_id', $userId);
+    })->get(['user_id', 'friend_id'])
+        ->flatMap(fn ($friendship) => [$friendship->user_id, $friendship->friend_id])
+        ->push($userId)
+        ->unique();
+    $suggestions = \App\Models\User::whereNotIn('id', $excludedIds)
+        ->orderBy('name')
+        ->limit(8)
+        ->get();
 
     return view('friends.index', compact('friends', 'pending', 'suggestions'));
 })->name('friends.index');
@@ -2122,18 +2264,18 @@ Route::get('/u/{user}/friends', function (\App\Models\User $user) {
 Route::post('/activities/{activity}/share', function (\App\Models\Activity $activity) {
     if ($activity->community_id) {
         $ok = \App\Models\CommunityMember::where('community_id', $activity->community_id)
-            ->where('user_id', auth()->id())
+            ->where('user_id', \Illuminate\Support\Facades\Auth::id())
             ->where('status', 'active')
             ->exists();
-        abort_unless($ok || $activity->user_id === auth()->id(), 403);
+        abort_unless($ok || $activity->user_id === \Illuminate\Support\Facades\Auth::id(), 403);
     }
 
     \App\Models\Activity::log([
-        'user_id' => auth()->id(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
         'community_id' => null,
         'type' => 'share',
         'parent_id' => $activity->id,
-        'title' => auth()->user()->name . ' shared a post',
+        'title' => \Illuminate\Support\Facades\Auth::user()->name . ' shared a post',
         'body' => \Illuminate\Support\Str::limit($activity->body ?? $activity->title, 200),
         'url' => $activity->url ?? route('dashboard'),
         'attachment' => $activity->attachment,
@@ -2151,10 +2293,10 @@ Route::post('/teams/{slug}/projects/{project}/share', function ($slug, $project)
     $project = $team->projects()->findOrFail($project);
 
     \App\Models\Activity::log([
-        'user_id' => auth()->id(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
         'community_id' => null,
         'type' => 'share',
-        'title' => auth()->user()->name . ' shared a project win',
+        'title' => \Illuminate\Support\Facades\Auth::user()->name . ' shared a project win',
         'body' => $project->title,
         'url' => route('projects.show', [$team->slug, $project->id]),
     ]);
@@ -2164,12 +2306,22 @@ Route::post('/teams/{slug}/projects/{project}/share', function ($slug, $project)
 
 // Public-ish post page (auth)
 Route::get('/a/{activity}', function (\App\Models\Activity $activity) {
-    $user = auth()->user();
+    $user = \Illuminate\Support\Facades\Auth::user();
 
     // Wall post: author, friends, or self
     if ($activity->community_id === null) {
         $ok = $activity->user_id === $user->id
-            || $user->friendIds()->contains($activity->user_id);
+                || \App\Models\Friendship::where('status', 'accepted')
+                    ->where(function ($query) use ($user, $activity) {
+                        $query->where(function ($query) use ($user, $activity) {
+                            $query->where('user_id', $user->id)
+                                ->where('friend_id', $activity->user_id);
+                        })->orWhere(function ($query) use ($user, $activity) {
+                            $query->where('user_id', $activity->user_id)
+                                ->where('friend_id', $user->id);
+                        });
+                    })
+                    ->exists();
         abort_unless($ok, 403);
     } else {
         $ok = \App\Models\CommunityMember::where('community_id', $activity->community_id)
@@ -2186,8 +2338,10 @@ Route::get('/a/{activity}', function (\App\Models\Activity $activity) {
 })->name('activities.show');
 
 Route::post('/activities/{activity}/bookmark', function (\App\Models\Activity $activity) {
+    $userId = Auth::id();
+
     $row = \App\Models\ActivityBookmark::where('activity_id', $activity->id)
-        ->where('user_id', auth()->id())
+        ->where('user_id', $userId)
         ->first();
 
     if ($row) {
@@ -2196,7 +2350,7 @@ Route::post('/activities/{activity}/bookmark', function (\App\Models\Activity $a
     } else {
         \App\Models\ActivityBookmark::create([
             'activity_id' => $activity->id,
-            'user_id' => auth()->id(),
+            'user_id' => $userId,
         ]);
         $bookmarked = true;
     }
@@ -2208,7 +2362,7 @@ Route::post('/activities/{activity}/bookmark', function (\App\Models\Activity $a
 })->name('activities.bookmark');
 
 Route::delete('/activities/{activity}', function (\App\Models\Activity $activity) {
-    $user = auth()->user();
+    $user = Auth::user();
     $allowed = $activity->user_id === $user->id;
 
     if (!$allowed && $activity->community_id) {
@@ -2233,17 +2387,18 @@ Route::post('/activities/{activity}/thread', function (\Illuminate\Http\Request 
     $validated = $request->validate([
         'body' => ['required', 'string', 'max:400'],
     ]);
+    $user = $request->user();
 
     // same visibility checks as comment/show...
 
     $root = $activity->parent_id ? \App\Models\Activity::find($activity->parent_id) ?? $activity : $activity;
 
     \App\Models\Activity::log([
-        'user_id' => auth()->id(),
+        'user_id' => $user->getAuthIdentifier(),
         'community_id' => $activity->community_id, // same wall or team
         'parent_id' => $root->id,
         'type' => 'thread',
-        'title' => auth()->user()->name . ' continued a thread',
+        'title' => $user->name . ' continued a thread',
         'body' => $validated['body'],
         'url' => route('activities.show', $root),
     ]);
@@ -2252,7 +2407,7 @@ Route::post('/activities/{activity}/thread', function (\Illuminate\Http\Request 
 })->name('activities.thread');
 
 Route::get('/saved', function () {
-    $bookmarks = \App\Models\ActivityBookmark::where('user_id', auth()->id())
+    $bookmarks = \App\Models\ActivityBookmark::where('user_id', Auth::id())
         ->latest()
         ->get();
 
@@ -2270,7 +2425,14 @@ Route::get('/saved', function () {
 })->middleware('auth')->name('activities.saved');
 
 Route::get('/admin/money-check', function () {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+    $user = Auth::user();
+    $isAdmin = $user && (
+        (method_exists($user, 'hasRole') && $user->hasRole('admin')) ||
+        (method_exists($user, 'roles') && $user->roles()->where('name', 'admin')->exists()) ||
+        (property_exists($user, 'role') && $user->role === 'admin') ||
+        (method_exists($user, 'isAdmin') && $user->isAdmin())
+    );
+    abort_unless($isAdmin, 403);
 
     $projects = \App\Models\Project::with(['vault', 'community'])->get()->map(function ($p) {
         $confirmed = (float) $p->contributions()->where('status', 'confirmed')->sum('amount');
@@ -2296,7 +2458,7 @@ Route::get('/admin/money-check', function () {
 })->middleware('auth')->name('admin.money-check');
 
 Route::get('/messages', function () {
-    $me = auth()->id();
+    $me = \Illuminate\Support\Facades\Auth::id();
 
     $conversations = \App\Models\Conversation::with(['userOne', 'userTwo', 'messages' => function ($q) {
             $q->latest()->limit(1);
@@ -2310,14 +2472,30 @@ Route::get('/messages', function () {
 })->name('messages.index');
 
 Route::get('/messages/{user}', function (\App\Models\User $user) {
-    abort_if($user->id === auth()->id(), 403);
+    $authUser = \Illuminate\Support\Facades\Auth::user();
 
-    $friends = auth()->user()->isFriendWith($user);
+    if (! $authUser instanceof \App\Models\User) {
+        abort(403);
+    }
+
+    abort_if($user->id === $authUser->id, 403);
+
+    $friends = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($query) use ($authUser, $user) {
+            $query->where(function ($query) use ($authUser, $user) {
+                $query->where('user_id', $authUser->id)
+                    ->where('friend_id', $user->id);
+            })->orWhere(function ($query) use ($authUser, $user) {
+                $query->where('user_id', $user->id)
+                    ->where('friend_id', $authUser->id);
+            });
+        })
+        ->exists();
     abort_unless($friends, 403, 'You can only message friends.');
 
-    $conversation = \App\Models\Conversation::between(auth()->id(), $user->id);
+    $conversation = \App\Models\Conversation::between($authUser->id, $user->id);
     $conversation->messages()
-        ->where('sender_id', '!=', auth()->id())
+        ->where('sender_id', '!=', $authUser->id)
         ->whereNull('read_at')
         ->update(['read_at' => now()]);
 
@@ -2327,30 +2505,44 @@ Route::get('/messages/{user}', function (\App\Models\User $user) {
 })->name('messages.show');
 
 Route::post('/messages/{user}', function (\Illuminate\Http\Request $request, \App\Models\User $user) {
-    abort_if($user->id === auth()->id(), 403);
-    abort_unless(auth()->user()->isFriendWith($user), 403);
+    abort_if($user->id === \Illuminate\Support\Facades\Auth::id(), 403);
+    $authUser = \Illuminate\Support\Facades\Auth::user();
+    abort_unless($authUser instanceof \App\Models\User, 403);
+
+    $friends = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($query) use ($authUser, $user) {
+            $query->where(function ($query) use ($authUser, $user) {
+                $query->where('user_id', $authUser->id)
+                    ->where('friend_id', $user->id);
+            })->orWhere(function ($query) use ($authUser, $user) {
+                $query->where('user_id', $user->id)
+                    ->where('friend_id', $authUser->id);
+            });
+        })
+        ->exists();
+    abort_unless($friends, 403);
 
     $data = $request->validate([
         'body' => 'required|string|max:2000',
     ]);
 
-    $conversation = \App\Models\Conversation::between(auth()->id(), $user->id);
+    $conversation = \App\Models\Conversation::between($authUser->id, $user->id);
 
     $conversation->messages()->create([
-        'sender_id' => auth()->id(),
+        'sender_id' => $authUser->id,
         'body' => $data['body'],
     ]);
 
     $conversation->update(['last_message_at' => now()]);
 
-    $user->notify(new \App\Notifications\DirectMessageReceived(auth()->user(), $conversation));
+    $user->notify(new \App\Notifications\DirectMessageReceived($authUser, $conversation));
 
     return redirect()->route('messages.show', $user);
 })->name('messages.store');
 
-Route::get('/teams/{slug}/meetings', function ($slug) {
+Route::get('/teams/{slug}/meetings', function (\Illuminate\Http\Request $request, $slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    abort_unless($team->isMember(auth()->user()), 403);
+    abort_unless($team->isMember($request->user()), 403);
 
     $meetings = $team->meetings()
         ->with('creator')
@@ -2358,21 +2550,21 @@ Route::get('/teams/{slug}/meetings', function ($slug) {
         ->orderBy('starts_at')
         ->get();
 
-    $isAdmin = $team->isAdmin(auth()->user()) || $team->creator_id === auth()->id();
+    $isAdmin = $team->isAdmin($request->user()) || $team->creator_id === $request->user()->id;
 
     return view('teams.meetings.index', compact('team', 'meetings', 'isAdmin'));
 })->name('teams.meetings.index');
 
-Route::get('/teams/{slug}/meetings/create', function ($slug) {
+Route::get('/teams/{slug}/meetings/create', function (\Illuminate\Http\Request $request, $slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    abort_unless($team->isAdmin(auth()->user()) || $team->creator_id === auth()->id(), 403);
+    abort_unless($team->isAdmin($request->user()) || $team->creator_id === $request->user()->id, 403);
 
     return view('teams.meetings.create', compact('team'));
 })->name('teams.meetings.create');
 
     Route::post('/teams/{slug}/meetings', function (\Illuminate\Http\Request $request, $slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        abort_unless($team->isAdmin(auth()->user()) || $team->creator_id === auth()->id(), 403);
+        abort_unless($team->isAdmin($request->user()) || $team->creator_id === $request->user()->id, 403);
 
         $data = $request->validate([
             'title' => 'required|string|max:120',
@@ -2385,7 +2577,7 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
 
         $meeting = $team->meetings()->create([
             ...$data,
-            'created_by' => auth()->id(),
+            'created_by' => $request->user()->id,
             'status' => 'scheduled',
         ]);
         $meeting->load('community');
@@ -2396,7 +2588,7 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
         }
 
         \App\Models\Activity::log([
-            'user_id' => auth()->id(),
+            'user_id' => $request->user()->id,
             'community_id' => $team->id,
             'type' => 'milestone',
             'title' => 'Meeting scheduled: ' . $meeting->title,
@@ -2411,7 +2603,9 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
     Route::post('/teams/{slug}/meetings/{meeting}/cancel', function ($slug, \App\Models\TeamMeeting $meeting) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
         abort_unless($meeting->community_id === $team->id, 404);
-        abort_unless($team->isAdmin(auth()->user()) || $team->creator_id === auth()->id(), 403);
+
+        $user = \Illuminate\Support\Facades\Auth::user();
+        abort_unless($user && ($team->isAdmin($user) || $team->creator_id === $user->id), 403);
 
         $meeting->update(['status' => 'cancelled']);
 
@@ -2424,10 +2618,13 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
             ->get();
 
         foreach ($members as $member) {
-            if ($member->user_id === auth()->id()) {
+            if ($member->user_id === $user->id) {
                 continue;
             }
-            $member->user->notify(new \App\Notifications\TeamMeetingCancelled($meeting, auth()->user()));
+            $recipient = $member->getRelationValue('user');
+            if ($recipient instanceof \App\Models\User) {
+                $recipient->notify(new \App\Notifications\TeamMeetingCancelled($meeting, $user));
+            }
         }
 
         return back()->with('message', 'Meeting cancelled. Members have been notified.');
@@ -2437,7 +2634,7 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
 
     Route::post('/teams/{slug}/polls', function (\Illuminate\Http\Request $request, $slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    abort_unless($team->isAdmin(auth()->user()) || $team->creator_id === auth()->id(), 403);
+    abort_unless($team->isAdmin($request->user()) || $team->creator_id === $request->user()->getAuthIdentifier(), 403);
 
     $data = $request->validate([
         'question' => 'required|string|max:180',
@@ -2452,7 +2649,7 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
     }
 
     $poll = $team->polls()->create([
-        'created_by' => auth()->id(),
+        'created_by' => $request->user()->getAuthIdentifier(),
         'question' => $data['question'],
         'status' => 'open',
         'closes_at' => $request->filled('closes_at') ? $data['closes_at'] : null,
@@ -2474,7 +2671,7 @@ Route::get('/teams/{slug}/meetings/create', function ($slug) {
 Route::post('/teams/{slug}/polls/{poll}/vote', function (\Illuminate\Http\Request $request, $slug, \App\Models\TeamPoll $poll) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     abort_unless($poll->community_id === $team->id, 404);
-    abort_unless($team->isMember(auth()->user()), 403);
+    abort_unless($team->isMember($request->user()), 403);
     abort_unless($poll->isOpen(), 403);
 
     $data = $request->validate([
@@ -2484,7 +2681,7 @@ Route::post('/teams/{slug}/polls/{poll}/vote', function (\Illuminate\Http\Reques
     $option = $poll->options()->where('id', $data['option_id'])->firstOrFail();
 
     \App\Models\TeamPollVote::updateOrCreate(
-        ['team_poll_id' => $poll->id, 'user_id' => auth()->id()],
+        ['team_poll_id' => $poll->id, 'user_id' => $request->user()->id],
         ['team_poll_option_id' => $option->id]
     );
 
@@ -2505,7 +2702,7 @@ Route::post('/teams/{slug}/polls/{poll}/vote', function (\Illuminate\Http\Reques
 Route::post('/teams/{slug}/polls/{poll}/close', function ($slug, \App\Models\TeamPoll $poll) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     abort_unless($poll->community_id === $team->id, 404);
-    abort_unless($team->isAdmin(auth()->user()) || $team->creator_id === auth()->id(), 403);
+    abort_unless($team->isAdmin(\Illuminate\Support\Facades\Auth::user()) || $team->creator_id === \Illuminate\Support\Facades\Auth::id(), 403);
     $poll->update(['status' => 'closed']);
     $poll->load('community');
     $members = $team->members()->where('status', 'active')->with('user')->get();
@@ -2515,8 +2712,22 @@ Route::post('/teams/{slug}/polls/{poll}/close', function ($slug, \App\Models\Tea
     return back()->with('message', 'Poll closed.');
 })->name('teams.polls.close');
 
-Route::get('/admin/newsletter', function () {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+$adminCheck = function () {
+    $user = \Illuminate\Support\Facades\Auth::user();
+
+    if (!$user) {
+        return false;
+    }
+
+    if (method_exists($user, 'hasRole')) {
+        return (bool) $user->hasRole('admin');
+    }
+
+    return (bool) (($user->is_admin ?? false) || (($user->role ?? null) === 'admin'));
+};
+
+Route::get('/admin/newsletter', function () use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
 
     $campaigns = \App\Models\EmailCampaign::latest()->take(20)->get();
     $userCount = \App\Models\User::whereNotNull('email')->count();
@@ -2524,8 +2735,8 @@ Route::get('/admin/newsletter', function () {
     return view('admin.newsletter', compact('campaigns', 'userCount'));
 })->name('admin.newsletter');
 
-Route::post('/admin/newsletter', function (\Illuminate\Http\Request $request) {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::post('/admin/newsletter', function (\Illuminate\Http\Request $request) use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
 
     $data = $request->validate([
         'subject' => 'required|string|max:140',
@@ -2540,7 +2751,7 @@ Route::post('/admin/newsletter', function (\Illuminate\Http\Request $request) {
     }
 
     $campaign = \App\Models\EmailCampaign::create([
-        'user_id' => auth()->id(),
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
         'subject' => $data['subject'],
         'body' => $data['body'],
         'audience' => 'all',
@@ -2565,8 +2776,8 @@ Route::post('/admin/newsletter', function (\Illuminate\Http\Request $request) {
     return back()->with('message', 'Newsletter sent to ' . $sent . ' members.');
 })->name('admin.newsletter.send');
 
-Route::post('/profile/phone/send-code', function () {
-    $user = auth()->user();
+Route::post('/profile/phone/send-code', function (\Illuminate\Http\Request $request) {
+    $user = $request->user();
 
     if (!$user->phone) {
         return back()->with('error', 'Add a phone number first.');
@@ -2596,7 +2807,11 @@ Route::post('/profile/phone/verify', function (\Illuminate\Http\Request $request
         'code' => ['required', 'digits:6'],
     ]);
 
-    $user = auth()->user();
+    $user = \Illuminate\Support\Facades\Auth::user();
+
+    if (!$user || !$user instanceof \App\Models\User) {
+        abort(401);
+    }
 
     $expires = $user->phone_otp_expires_at
     ? \Illuminate\Support\Carbon::parse($user->phone_otp_expires_at)
@@ -2610,29 +2825,28 @@ Route::post('/profile/phone/verify', function (\Illuminate\Http\Request $request
         return back()->with('error', 'Wrong code.');
     }
 
-    $user->forceFill([
-        'phone_verified_at' => now(),
-        'whatsapp_opt_in' => 'on',
-        'phone_otp' => null,
-        'phone_otp_expires_at' => null,
-    ])->save();
+    $user->phone_verified_at = now();
+    $user->whatsapp_opt_in = 'on';
+    $user->phone_otp = null;
+    $user->phone_otp_expires_at = null;
+    $user->save();
 
     return back()->with('message', 'Phone verified. WhatsApp alerts are on.');
 })->name('profile.phone.verify');
 
-Route::get('/admin/guides', function () {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::get('/admin/guides', function () use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     $posts = \App\Models\BlogPost::latest()->paginate(20);
     return view('blog.admin', compact('posts'));
 })->name('blog.admin');
 
-Route::get('/admin/guides/create', function () {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::get('/admin/guides/create', function () use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     return view('blog.edit', ['post' => new \App\Models\BlogPost()]);
 })->name('blog.create');
 
-Route::post('/admin/guides', function (\Illuminate\Http\Request $request) {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::post('/admin/guides', function (\Illuminate\Http\Request $request) use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     $data = $request->validate([
         'title' => 'required|string|max:160',
         'category' => 'required|in:'.implode(',', array_keys(\App\Models\BlogPost::categories())),
@@ -2642,7 +2856,7 @@ Route::post('/admin/guides', function (\Illuminate\Http\Request $request) {
         'publish' => 'nullable|boolean',
     ]);
     $post = new \App\Models\BlogPost($data);
-    $post->user_id = auth()->id();
+    $post->user_id = $request->user()->getAuthIdentifier();
     $post->slug = \Illuminate\Support\Str::slug($data['title']).'-'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(4));
     if ($request->hasFile('cover')) {
         $post->cover = $request->file('cover')->store('blog', 'public');
@@ -2652,13 +2866,13 @@ Route::post('/admin/guides', function (\Illuminate\Http\Request $request) {
     return redirect()->route('blog.admin')->with('message', 'Guide saved.');
 })->name('blog.store');
 
-Route::get('/admin/guides/{post}/edit', function (\App\Models\BlogPost $post) {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::get('/admin/guides/{post}/edit', function (\App\Models\BlogPost $post) use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     return view('blog.edit', compact('post'));
 })->name('blog.edit');
 
-Route::put('/admin/guides/{post}', function (\Illuminate\Http\Request $request, \App\Models\BlogPost $post) {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::put('/admin/guides/{post}', function (\Illuminate\Http\Request $request, \App\Models\BlogPost $post) use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     $data = $request->validate([
         'title' => 'required|string|max:160',
         'category' => 'required|in:'.implode(',', array_keys(\App\Models\BlogPost::categories())),
@@ -2676,14 +2890,14 @@ Route::put('/admin/guides/{post}', function (\Illuminate\Http\Request $request, 
     return redirect()->route('blog.admin')->with('message', 'Guide updated.');
 })->name('blog.update');
 
-Route::delete('/admin/guides/{post}', function (\App\Models\BlogPost $post) {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::delete('/admin/guides/{post}', function (\App\Models\BlogPost $post) use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
     $post->delete();
     return redirect()->route('blog.admin')->with('message', 'Guide deleted.');
 })->name('blog.destroy');
 
-Route::get('/admin', function () {
-    abort_unless(auth()->user()->hasRole('admin'), 403);
+Route::get('/admin', function () use ($adminCheck) {
+    abort_unless($adminCheck(), 403);
 
     $since = now()->subDays(7);
 
@@ -2714,11 +2928,11 @@ Route::get('/admin', function () {
 
 Route::post('/learn/{slug}/like', function ($slug) {
     $post = \App\Models\BlogPost::published()->where('slug', $slug)->firstOrFail();
-    $like = $post->likes()->where('user_id', auth()->id())->first();
+    $like = $post->likes()->where('user_id', \Illuminate\Support\Facades\Auth::id())->first();
     if ($like) {
         $like->delete();
     } else {
-        $post->likes()->create(['user_id' => auth()->id()]);
+        $post->likes()->create(['user_id' => \Illuminate\Support\Facades\Auth::id()]);
     }
     return back();
 })->name('blog.like');
@@ -2726,7 +2940,7 @@ Route::post('/learn/{slug}/like', function ($slug) {
 Route::post('/teams/{slug}/projects/{project}/ballot', function ($slug, \App\Models\Project $project) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     abort_unless($project->community_id === $team->id, 404);
-    abort_unless($team->isAdmin(auth()->user()) || $project->creator_id === auth()->id(), 403);
+    abort_unless($team->isAdmin(\Illuminate\Support\Facades\Auth::user()) || $project->creator_id === \Illuminate\Support\Facades\Auth::id(), 403);
     abort_if($project->ballot, 422, 'This pool already has a draw.');
 
     $members = $team->members()->where('status', 'active')->pluck('user_id')->unique()->values()->all();
@@ -2742,7 +2956,7 @@ Route::post('/teams/{slug}/projects/{project}/ballot', function ($slug, \App\Mod
 
     $ballot = \App\Models\ProjectBallot::create([
         'project_id' => $project->id,
-        'executed_by' => auth()->id(),
+        'executed_by' => \Illuminate\Support\Facades\Auth::id(),
         'draw_hash' => hash('sha256', $project->id.'|'.now()->toIso8601String().'|'.implode(',', $members)),
         'executed_at' => now(),
         'swap_until' => now()->addHours(24),
@@ -2762,7 +2976,8 @@ Route::post('/teams/{slug}/projects/{project}/ballot', function ($slug, \App\Mod
     }
 
     foreach ($made as $slot) {
-        $slot->user?->notify(new \App\Notifications\BallotDrawn($project, $slot->position, $team));
+        $user = $slot->user_id ? \App\Models\User::find($slot->user_id) : null;
+        $user?->notify(new \App\Notifications\BallotDrawn($project, $slot->position, $team));
     }
 
     return back()->with('message', 'Draw complete. Members can swap slots for 24 hours.');
@@ -2772,19 +2987,20 @@ Route::post('/teams/{slug}/projects/{project}/slots/{slot}/swap', function ($slu
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     abort_unless($project->community_id === $team->id && $slot->project_id === $project->id, 404);
     abort_unless($project->ballot && $project->ballot->swapsOpen(), 422);
-    abort_if($slot->user_id === auth()->id(), 422);
+    abort_if($slot->user_id === \Illuminate\Support\Facades\Auth::id(), 422);
 
-    $mine = $project->payoutSlots()->where('user_id', auth()->id())->firstOrFail();
+    $mine = $project->payoutSlots()->where('user_id', \Illuminate\Support\Facades\Auth::id())->firstOrFail();
+    $recipient = \App\Models\User::findOrFail($slot->user_id);
 
     \Illuminate\Support\Facades\DB::table('payout_swap_requests')->updateOrInsert(
-        ['project_id' => $project->id, 'from_user_id' => auth()->id(), 'to_user_id' => $slot->user_id, 'status' => 'pending'],
+        ['project_id' => $project->id, 'from_user_id' => \Illuminate\Support\Facades\Auth::id(), 'to_user_id' => $slot->user_id, 'status' => 'pending'],
         ['updated_at' => now(), 'created_at' => now()]
     );
 
     $project->load('community');
-    $slot->user->notify(new \App\Notifications\PayoutSwapRequested($project, $mine, auth()->user()));
+    $recipient->notify(new \App\Notifications\PayoutSwapRequested($project, $mine, \Illuminate\Support\Facades\Auth::user()));
 
-    return back()->with('message', 'Swap request sent to '.$slot->user->name.'.');
+    return back()->with('message', 'Swap request sent to '.$recipient->name.'.');
 })->name('projects.slots.swap');
 
 Route::post('/teams/{slug}/projects/{project}/swaps/{swap}/accept', function ($slug, \App\Models\Project $project, $swap) {
@@ -2793,7 +3009,7 @@ Route::post('/teams/{slug}/projects/{project}/swaps/{swap}/accept', function ($s
     abort_unless($project->ballot && $project->ballot->swapsOpen(), 422);
 
     $row = \Illuminate\Support\Facades\DB::table('payout_swap_requests')->where('id', $swap)->first();
-    abort_unless($row && $row->to_user_id === auth()->id() && $row->status === 'pending', 403);
+    abort_unless($row && $row->to_user_id === \Illuminate\Support\Facades\Auth::id() && $row->status === 'pending', 403);
 
     $a = $project->payoutSlots()->where('user_id', $row->from_user_id)->firstOrFail();
     $b = $project->payoutSlots()->where('user_id', $row->to_user_id)->firstOrFail();
@@ -2809,7 +3025,7 @@ Route::post('/teams/{slug}/projects/{project}/swaps/{swap}/accept', function ($s
 
 Route::post('/teams/{slug}/settings', function (\Illuminate\Http\Request $request, $slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    abort_unless($team->isAdmin(auth()->user()), 403);
+    abort_unless($team->isAdmin(\Illuminate\Support\Facades\Auth::user()), 403);
 
     $data = $request->validate([
         'visibility' => 'required|in:public,private',
@@ -2836,7 +3052,7 @@ Route::post('/teams/{slug}/settings', function (\Illuminate\Http\Request $reques
 
 Route::post('/teams/{slug}/leave', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    $membership = $team->members()->where('user_id', auth()->id())->where('status', 'active')->firstOrFail();
+    $membership = $team->members()->where('user_id', Auth::id())->where('status', 'active')->firstOrFail();
 
     if ($membership->user_id === $team->created_by) {
         return back()->with('error', 'The creator cannot leave. Remove the team instead.');
@@ -2855,8 +3071,8 @@ Route::post('/teams/{slug}/leave', function ($slug) {
 
 Route::post('/teams/{slug}/members/{userId}/remove', function ($slug, $userId) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    abort_unless($team->isAdmin(auth()->user()), 403);
-    abort_if((int) $userId === auth()->id(), 403);
+    abort_unless($team->isAdmin(Auth::user()), 403);
+    abort_if((int) $userId === Auth::id(), 403);
 
     $membership = $team->members()->where('user_id', $userId)->where('status', 'active')->firstOrFail();
     if ((int) $userId === (int) $team->created_by) {
@@ -2868,6 +3084,353 @@ Route::post('/teams/{slug}/members/{userId}/remove', function ($slug, $userId) {
 
     return back()->with('message', 'Member removed.');
 })->name('teams.members.remove');
+
+Route::get('/circles/create', function () {
+    return view('circles.create');
+})->name('circles.create');
+
+Route::post('/circles', function (\Illuminate\Http\Request $request) {
+    $data = $request->validate([
+        'title' => ['required', 'string', 'max:80'],
+        'summary' => ['nullable', 'string', 'max:500'],
+        'contribution_amount' => ['required', 'integer', 'min:100'],
+        'frequency' => ['required', 'in:daily,weekly,monthly'],
+        'slots_total' => ['required', 'integer', 'min:2', 'max:31'],
+        'start_date' => ['required', 'date', 'after_or_equal:today'],
+    ]);
+
+    $circle = \App\Models\Circle::create([
+        ...$data,
+        'host_id' => $request->user()->getAuthIdentifier(),
+        'slug' => \Illuminate\Support\Str::slug($data['title']).'-'.\Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(4)),
+        'status' => 'open',
+        'visibility' => 'public',
+    ]);
+
+    $start = \Carbon\Carbon::parse($data['start_date']);
+
+    for ($i = 1; $i <= $data['slots_total']; $i++) {
+        $due = match ($data['frequency']) {
+            'daily' => $start->copy()->addDays($i - 1),
+            'weekly' => $start->copy()->addWeeks($i - 1),
+            'monthly' => $start->copy()->addMonths($i - 1),
+        };
+
+        $circle->slots()->create([
+            'position' => $i,
+            'status' => 'open',
+            'eligibility' => 'open',
+            'payout_due_on' => $due->toDateString(),
+        ]);
+    }
+
+    $knownUntil = (int) ceil($data['slots_total'] / 2);
+    $circle->slots()->where('position', '<=', $knownUntil)->update(['eligibility' => 'known']);
+
+    return redirect()->route('discover')->with('message', 'Circle listed. Members can now see the open slots.');
+})->middleware('throttle:create-team')->name('circles.store');
+
+Route::get('/discover', function () {
+    $circles = \App\Models\Circle::with(['host', 'slots'])
+        ->withCount(['slots as open_slots_count' => fn ($q) => $q->where('status', 'open')])
+        ->withAvg('ratings', 'score')
+        ->withCount('ratings')
+        ->where('visibility', 'public')
+        ->where('status', 'open')
+        ->when(request('frequency'), fn ($q, $f) => $q->where('frequency', $f))
+        ->when(request('max_amount'), fn ($q, $n) => $q->where('contribution_amount', '<=', (int) $n))
+        ->latest()
+        ->paginate(12);
+
+    return view('circles.discover', compact('circles'));
+})->name('discover');
+
+Route::get('/circles/mine', function () {
+    $hosting = \App\Models\Circle::withCount(['slots as open_slots_count' => fn ($q) => $q->where('status', 'open')])
+        ->where('host_id', Auth::id())
+        ->latest()
+        ->get();
+
+    $joined = \App\Models\CircleSlot::with('circle')
+        ->where('user_id', Auth::id())
+        ->whereIn('status', ['reserved', 'active', 'paid'])
+        ->latest()
+        ->get();
+
+    return view('circles.mine', compact('hosting', 'joined'));
+})->name('circles.mine');
+
+
+
+Route::post('/circles/{slug}/slots/{slot}/reserve', function ($slug, $slot) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    $slot = $circle->slots()->where('id', $slot)->firstOrFail();
+
+    $isKnownToHost = Auth::id() === $circle->host_id || \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($query) use ($circle) {
+            $query->where(function ($query) use ($circle) {
+                $query->where('user_id', Auth::id())->where('friend_id', $circle->host_id);
+            })->orWhere(function ($query) use ($circle) {
+                $query->where('user_id', $circle->host_id)->where('friend_id', Auth::id());
+            });
+        })
+        ->exists();
+
+    if ($slot->eligibility === 'known' && !$isKnownToHost) {
+        return back()->with('error', 'This slot is for people the host already knows. Take a later open slot.');
+    }
+
+    if ($slot->status !== 'open') {
+        return back()->with('error', 'That slot is no longer open.');
+    }
+
+    $already = $circle->slots()
+        ->where('user_id', Auth::id())
+        ->whereIn('status', ['reserved', 'active'])
+        ->exists();
+
+    if ($already) {
+        return back()->with('error', 'You already have a slot in this circle.');
+    }
+
+    $slot->update([
+        'user_id' => Auth::id(),
+        'status' => 'reserved',
+        'reserved_until' => now()->addHours(24),
+    ]);
+
+    $circle->host->notify(new \App\Notifications\CircleSlotUpdated(
+        Auth::user()->name . ' reserved slot ' . $slot->position . ' in ' . $circle->title,
+        route('circles.show', $circle->slug)
+    ));
+
+    return back()->with('message', 'Slot held for 24 hours. Confirm your place before it opens again.');
+})->name('circles.slots.reserve');
+
+Route::post('/circles/{slug}/slots/{slot}/confirm', function ($slug, $slot) {
+    $circle = \App\Models\Circle::where('slug', $slug)->where('status', 'open')->firstOrFail();
+    $slot = $circle->slots()->where('id', $slot)->firstOrFail();
+
+    if ($slot->user_id !== Auth::id() || $slot->status !== 'reserved') {
+        return back()->with('error', 'This hold is not yours.');
+    }
+
+    if ($slot->reserved_until && $slot->reserved_until->isPast()) {
+        $slot->update(['status' => 'open', 'user_id' => null, 'reserved_until' => null]);
+        return back()->with('error', 'That hold expired. Reserve the slot again.');
+    }
+
+    $slot->update([
+        'status' => 'active',
+        'reserved_until' => null,
+    ]);
+
+    if ($circle->slots()->where('status', 'open')->doesntExist()) {
+        $circle->update(['status' => 'full']);
+    }
+
+    return back()->with('message', 'You are in slot '.$slot->position.'.');
+})->name('circles.slots.confirm');
+
+Route::post('/circles/{slug}/slots/{slot}/pay', function (\Illuminate\Http\Request $request, $slug, $slot) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    $slot = $circle->slots()->where('id', $slot)->firstOrFail();
+
+    if ($slot->user_id !== Auth::id() || $slot->status !== 'active') {
+        return back()->with('error', 'Confirm your slot before you pay.');
+    }
+
+    $pending = $slot->payments()->whereIn('status', ['pending', 'approved'])->exists();
+    if ($pending) {
+        return back()->with('error', 'This slot already has a payment.');
+    }
+
+    $data = $request->validate([
+        'amount' => ['required', 'integer', 'min:1'],
+        'paid_on' => ['required', 'date', 'before_or_equal:today'],
+        'proof' => ['required', 'image', 'max:4096'],
+    ]);
+
+    $path = $request->file('proof')->store('circle-payments', 'public');
+
+    $slot->payments()->create([
+        'user_id' => Auth::id(),
+        'amount' => $data['amount'],
+        'paid_on' => $data['paid_on'],
+        'proof_path' => $path,
+        'status' => 'pending',
+    ]);
+
+    $circle->host->notify(new \App\Notifications\CircleSlotUpdated(
+    Auth::user()->name . ' uploaded a receipt for slot ' . $slot->position,
+    route('circles.show', $circle->slug)
+));
+
+    return back()->with('message', 'Proof sent. The host will approve it.');
+})->name('circles.slots.pay');
+
+Route::post('/circles/{slug}/payments/{payment}/approve', function ($slug, $payment) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    abort_unless($circle->host_id === Auth::id(), 403);
+
+    $payment = \App\Models\CirclePayment::where('id', $payment)
+        ->whereHas('slot', fn ($q) => $q->where('circle_id', $circle->id))
+        ->firstOrFail();
+
+    $payment->update([
+        'status' => 'approved',
+        'reviewed_by' => Auth::id(),
+        'reviewed_at' => now(),
+    ]);
+
+    $payment->slot->update(['status' => 'paid']);
+
+    $payment->slot->user->notify(new \App\Notifications\CircleSlotUpdated(
+        'Your payment for slot ' . $payment->slot->position . ' was ' . $payment->status,
+        route('circles.show', $circle->slug)
+    ));
+
+    return back()->with('message', 'Payment approved.');
+})->name('circles.payments.approve');
+
+Route::post('/circles/{slug}/payments/{payment}/reject', function ($slug, $payment) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    abort_unless($circle->host_id === Auth::id(), 403);
+
+    $payment = \App\Models\CirclePayment::where('id', $payment)
+        ->whereHas('slot', fn ($q) => $q->where('circle_id', $circle->id))
+        ->firstOrFail();
+
+    $payment->update([
+        'status' => 'rejected',
+        'reviewed_by' => Auth::id(),
+        'reviewed_at' => now(),
+    ]);
+
+    $payment->slot->user->notify(new \App\Notifications\CircleSlotUpdated(
+        'Your payment for slot ' . $payment->slot->position . ' was ' . $payment->status,
+        route('circles.show', $circle->slug)
+    ));
+
+    return back()->with('message', 'Payment rejected. The member can send a new proof.');
+})->name('circles.payments.reject');
+
+Route::post('/circles/{slug}/bank', function (\Illuminate\Http\Request $request, $slug) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    abort_unless($circle->host_id === Auth::id(), 403);
+
+    $data = $request->validate([
+        'bank_name' => ['required', 'string', 'max:80'],
+        'account_name' => ['required', 'string', 'max:120'],
+        'account_number' => ['required', 'string', 'max:20'],
+    ]);
+
+    $circle->update($data);
+
+    return back()->with('message', 'Payout account saved.');
+})->name('circles.bank');
+
+Route::post('/circles/{slug}/slots/{slot}/payout', function ($slug, $slot) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    abort_unless((int) $circle->host_id === (int) Auth::id(), 403);
+
+    $slot = $circle->slots()->where('id', $slot)->firstOrFail();
+
+    if (!in_array($slot->status, ['active', 'paid'], true)) {
+        return back()->with('error', 'Only a confirmed slot can be paid out.');
+    }
+
+    if ($slot->paid_out_at) {
+        return back()->with('error', 'This slot was already paid out.');
+    }
+
+    $earlier = $circle->slots()
+        ->where('position', '<', $slot->position)
+        ->whereNull('paid_out_at')
+        ->whereIn('status', ['active', 'paid'])
+        ->exists();
+
+    if ($earlier) {
+        return back()->with('error', 'Pay the earlier slot first.');
+    }
+
+    $slot->update([
+        'paid_out_at' => now(),
+        'paid_out_by' => Auth::id(),
+    ]);
+
+    $left = $circle->slots()->whereNull('paid_out_at')->exists();
+    if (!$left) {
+        $circle->update(['status' => 'completed']);
+    }
+
+    $slot->user->notify(new \App\Notifications\CircleSlotUpdated(
+        'You were paid out for slot ' . $slot->position . ' in ' . $circle->title,
+        route('circles.show', $circle->slug)
+    ));
+
+    return back()->with('message', 'Slot ' . $slot->position . ' marked as paid out.');
+})->name('circles.slots.payout');
+
+Route::get('/circles/{slug}/messages', function ($slug) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    $holdsSlot = $circle->slots()->where('user_id', Auth::id())->whereIn('status', ['active', 'paid'])->exists();
+    abort_unless($holdsSlot || (int) $circle->host_id === (int) Auth::id(), 403);
+
+    $messages = $circle->messages()->with('from')->latest()->take(50)->get()->reverse();
+
+    return view('circles.messages', compact('circle', 'messages'));
+})->name('circles.messages');
+
+Route::post('/circles/{slug}/messages', function ($slug, \Illuminate\Http\Request $request) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    $holdsSlot = $circle->slots()->where('user_id', Auth::id())->whereIn('status', ['active', 'paid'])->exists();
+    abort_unless($holdsSlot || (int) $circle->host_id === (int) Auth::id(), 403);
+
+    $data = $request->validate(['body' => ['required', 'string', 'max:1000']]);
+
+    $to = (int) $circle->host_id === (int) Auth::id()
+        ? $circle->slots()->whereNotNull('user_id')->value('user_id')
+        : $circle->host_id;
+
+    $message = $circle->messages()->create([
+        'from_user_id' => Auth::id(),
+        'to_user_id' => $to,
+        'body' => $data['body'],
+    ]);
+
+    \App\Models\User::find($to)?->notify(new \App\Notifications\CircleSlotUpdated(
+        $request->user()->name . ' sent a message in ' . $circle->title,
+        route('circles.messages', $circle->slug)
+    ));
+
+    return back();
+})->name('circles.messages.store');
+
+Route::post('/circles/{slug}/rate', function ($slug, \Illuminate\Http\Request $request) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
+    $finished = $circle->slots()
+        ->where('user_id', \Illuminate\Support\Facades\Auth::id())
+        ->whereNotNull('paid_out_at')
+        ->exists();
+    abort_unless($finished, 403);
+
+    $data = $request->validate([
+        'score' => ['required', 'integer', 'min:1', 'max:5'],
+        'comment' => ['nullable', 'string', 'max:300'],
+    ]);
+
+    \App\Models\CircleRating::updateOrCreate(
+        ['circle_id' => $circle->id, 'user_id' => \Illuminate\Support\Facades\Auth::id()],
+        [
+            'host_id' => $circle->host_id,
+            'score' => $data['score'],
+            'comment' => $data['comment'] ?? null,
+        ]
+    );
+
+    return back()->with('message', 'Rating saved.');
+})->name('circles.rate');
 
 });
 
@@ -2882,7 +3445,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
         Route::post('/welfare', function (Illuminate\Http\Request $request) {
 
-        if (auth()->user()->is_suspended) {
+        if ($request->user()->is_suspended) {
         return back()->with('error', 'Your account is suspended. Please pay the reactivation fee to continue.');
         }
 
@@ -2894,7 +3457,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
         ]);
 
         $data = [
-            'user_id' => auth()->id(),
+            'user_id' => $request->user()->id,
             'request_type' => $validated['request_type'],
             'amount_requested' => $validated['amount_requested'],
             'description' => $validated['description'],
@@ -2921,7 +3484,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
         // ====================== WELFARE ======================
     Route::get('/welfare/manage', function () {
-        if (!auth()->user()->hasAnyRole(['admin', 'welfare_officer', 'chairperson'])) {
+        if (!\App\Models\User::role(['admin', 'welfare_officer', 'chairperson'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403, 'Only Admin, Welfare Officer or Chairperson can access this page.');
         }
 
@@ -2930,7 +3495,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
     })->name('welfare.manage');
 
         Route::post('/welfare/{id}/approve', function (Illuminate\Http\Request $request, $id) {
-        if (!auth()->user()->hasAnyRole(['admin', 'welfare_officer', 'chairperson'])) {
+        if (!\App\Models\User::role(['admin', 'welfare_officer', 'chairperson'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -2947,7 +3514,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
         $welfare->update([
             'status' => 'approved',
             'approved_amount' => $validated['approved_amount'],
-            'reviewed_by' => auth()->id(),
+            'reviewed_by' => \Illuminate\Support\Facades\Auth::id(),
             'decision_date' => now(),
         ]);
 
@@ -2964,7 +3531,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
     })->name('welfare.approve');
 
     Route::post('/welfare/{id}/reject', function (Illuminate\Http\Request $request, $id) {
-        if (!auth()->user()->hasAnyRole(['admin', 'welfare_officer', 'chairperson'])) {
+        if (!\App\Models\User::role(['admin', 'welfare_officer', 'chairperson'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -2976,7 +3545,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
         $welfare->update([
             'status' => 'rejected',
-            'reviewed_by' => auth()->id(),
+            'reviewed_by' => $request->user()->id,
             'decision_date' => now(),
             'rejection_reason' => $request->input('rejection_reason'),
         ]);
@@ -2988,7 +3557,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
     })->name('welfare.reject');
 
     Route::get('/welfare/disburse', function () {
-        if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+        if (!\App\Models\User::role(['admin', 'treasurer', 'chairperson'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -3001,7 +3572,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
     })->name('welfare.disburse');
 
     Route::post('/welfare/{id}/disburse', function ($id) {
-        if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+        if (!\App\Models\User::role(['admin', 'treasurer', 'chairperson'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -3018,7 +3591,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
         $welfare->update([
             'status' => 'disbursed',
-            'disbursed_by' => auth()->id(),
+            'disbursed_by' => \Illuminate\Support\Facades\Auth::id(),
             'disbursed_at' => now(),
         ]);
 
@@ -3028,7 +3601,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
         // Notify Admin, Treasurer, Auditor for bookkeeping
         $bookkeepers = \App\Models\User::role(['admin', 'treasurer', 'auditor', 'chairperson'])->get();
         foreach ($bookkeepers as $person) {
-            if ($person->id !== auth()->id()) {
+            if ($person->id !== \Illuminate\Support\Facades\Auth::id()) {
                 $person->notify(new \App\Notifications\WelfareRequestStatusUpdated($welfare));
             }
         }
@@ -3037,7 +3610,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
     })->name('welfare.disburse.store');
 
     Route::get('/welfare/monthly-list', function () {
-        if (!auth()->user()->hasAnyRole(['admin', 'welfare_officer', 'chairperson', 'treasurer'])) {
+        if (!\App\Models\User::role(['admin', 'welfare_officer', 'chairperson', 'treasurer'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -3054,7 +3629,9 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
     
     Route::get('/welfare/monthly-list/download', function () {
-        if (!auth()->user()->hasAnyRole(['admin', 'welfare_officer', 'chairperson', 'treasurer'])) {
+        if (!\App\Models\User::role(['admin', 'welfare_officer', 'chairperson', 'treasurer'])
+            ->whereKey(\Illuminate\Support\Facades\Auth::id())
+            ->exists()) {
             abort(403);
         }
 
@@ -3101,7 +3678,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
         })->name('contributions.monthly');
 
         Route::post('/contributions/monthly', function (Illuminate\Http\Request $request) {
-        $user = auth()->user();
+        $user = $request->user();
 
         // Check if suspended
         if ($user->is_suspended ?? false) {
@@ -3161,7 +3738,7 @@ Route::middleware(['auth', 'ajo.only'])->group(function () {
 
     // generate monthly contributions list
 Route::get('/reports/monthly-contributions', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3178,7 +3755,7 @@ Route::get('/reports/monthly-contributions', function () {
 
 //Download Monthly Contributions List
 Route::get('/reports/monthly-contributions/download', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3224,7 +3801,7 @@ Route::get('/reports/monthly-contributions/download', function () {
 // Contribution Management (Admin / Treasurer)
 // ====================== CONTRIBUTIONS ======================
 Route::get('/contributions/manage', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403, 'Only Admin, Treasurer or Chairperson can access this page.');
     }
 
@@ -3233,7 +3810,7 @@ Route::get('/contributions/manage', function () {
 })->name('contributions.manage');
 
 Route::post('/contributions/{id}/approve', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3246,7 +3823,7 @@ Route::post('/contributions/{id}/approve', function ($id) {
     // Approve the contribution
     $contribution->update([
         'status' => 'approved',
-        'approved_by' => auth()->id(),
+        'approved_by' => Auth::id(),
         'approved_at' => now(),
     ]);
 
@@ -3279,7 +3856,7 @@ Route::post('/contributions/{id}/approve', function ($id) {
 })->name('contributions.approve');
 
 Route::post('/contributions/{id}/reject', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'treasurer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'treasurer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3287,7 +3864,7 @@ Route::post('/contributions/{id}/reject', function ($id) {
 
     $contribution->update([
         'status' => 'rejected',
-        'approved_by' => auth()->id(),
+        'approved_by' => Auth::id(),
         'approved_at' => now(),
     ]);
 
@@ -3298,10 +3875,15 @@ Route::post('/contributions/{id}/reject', function ($id) {
 })->name('contributions.reject');
 
 // Portfolio
-    Route::get('/portfolio', function () {
-    $user = auth()->user();
+Route::get('/portfolio', function () {
+    $user = Auth::user();
+
+    if (! $user) {
+        abort(403);
+    }
+
     $unit = $user->investmentUnit;
-    $contributions = $user->monthlyContributions()->latest()->get();
+    $contributions = \App\Models\MonthlyContribution::where('user_id', $user->id)->latest()->get();
     $holdings = \App\Models\InvestmentHolding::with('offering')
         ->where('user_id', $user->id)
         ->where('units', '>', 0)
@@ -3311,21 +3893,24 @@ Route::post('/contributions/{id}/reject', function ($id) {
 })->name('portfolio');
 
 // Assets
-    // ====================== ASSETS ======================
+// ====================== ASSETS ======================
 Route::get('/assets', function () {
     $assets = \App\Models\InvestmentAsset::latest()->get();
     return view('assets.index', compact('assets'));
 })->name('assets');
 
 Route::get('/assets/create', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    $user = Auth::user();
+
+    if (! user_has_any_role($user, ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
+
     return view('assets.create');
 })->name('assets.create');
 
 Route::post('/assets', function (Illuminate\Http\Request $request) {
-    if (!auth()->user()->hasAnyRole(['admin', 'investment_officer', 'chairperson'])) {
+    if (! user_has_any_role(Auth::user(), ['admin', 'investment_officer', 'chairperson'])) {
         abort(403);
     }
         $validated = $request->validate([
@@ -3339,7 +3924,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
             'description' => 'nullable|string',
         ]);
 
-        $validated['added_by'] = auth()->id();
+        $validated['added_by'] = Auth::id();
         $validated['status'] = 'active';
         $validated['current_value'] = $validated['current_value'] ?? $validated['purchase_value'];
 
@@ -3359,7 +3944,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
 })->name('polls');
 
     Route::get('/polls/create', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'chairperson'])) {
         abort(403);
     }
     return view('polls.create');
@@ -3376,7 +3961,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
     $poll = \App\Models\Poll::create([
         'title' => $validated['title'],
         'description' => $validated['description'] ?? null,
-        'created_by' => auth()->id(),
+        'created_by' => Auth::id(),
         'status' => 'pending',   // ← changed from 'active'
     ]);
 
@@ -3390,7 +3975,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
 
 
     Route::post('/polls/{poll}/vote', function (Illuminate\Http\Request $request, \App\Models\Poll $poll) {
-        if ($poll->votes()->where('user_id', auth()->id())->exists()) {
+        if ($poll->votes()->where('user_id', Auth::id())->exists()) {
             return back()->with('error', 'You have already voted.');
         }
 
@@ -3398,7 +3983,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
 
         $poll->votes()->create([
             'poll_option_id' => $request->option_id,
-            'user_id' => auth()->id(),
+            'user_id' => Auth::id(),
         ]);
 
         return back()->with('message', 'Your vote has been recorded.');
@@ -3407,7 +3992,7 @@ Route::post('/assets', function (Illuminate\Http\Request $request) {
     // Polls Management
 // ====================== POLLS MANAGEMENT ======================
 Route::get('/polls/manage', function () {
-    if (!auth()->user()->hasAnyRole(['admin', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'chairperson'])) {
         abort(403);
     }
 
@@ -3416,7 +4001,7 @@ Route::get('/polls/manage', function () {
 })->name('polls.manage');
 
 Route::post('/polls/{id}/close', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'officer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3427,7 +4012,7 @@ Route::post('/polls/{id}/close', function ($id) {
 })->name('polls.close');
 
 Route::delete('/polls/{id}', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'officer', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'officer', 'chairperson'])) {
         abort(403);
     }
 
@@ -3438,7 +4023,7 @@ Route::delete('/polls/{id}', function ($id) {
 })->name('polls.destroy');
 
 Route::post('/polls/{id}/approve', function ($id) {
-    if (!auth()->user()->hasAnyRole(['admin', 'chairperson'])) {
+    if (!user_has_any_role(Auth::user(), ['admin', 'chairperson'])) {
         abort(403);
     }
 

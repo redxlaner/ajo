@@ -6,6 +6,9 @@
     <div class="py-8">
         <div class="max-w-xl mx-auto px-4">
             <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 sm:p-8">
+                @if (session('error'))
+                    <div class="mb-4 rounded-xl bg-red-50 text-red-800 px-4 py-3 text-sm">{{ session('error') }}</div>
+                @endif
                 <form method="POST" action="{{ route('teams.store') }}" enctype="multipart/form-data" class="space-y-5">
                     @csrf
 
