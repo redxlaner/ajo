@@ -23,9 +23,10 @@
                 </a>
 
                 <a href="{{ route('discover') }}"
-                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('discover') || request()->routeIs('circles.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('discover') || request()->routeIs('circles.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Discover
                 </a>
+
                 <a href="{{ route('teams.index') }}"
                    class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('teams.*') || request()->routeIs('projects.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Teams
@@ -37,7 +38,7 @@
                 </a>
 
                 <a href="{{ route('blog.index') }}"
-                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('blog.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('blog.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Learn
                 </a>
 
@@ -47,7 +48,6 @@
                 </a>
 
                 @auth
-
                 <a href="{{ route('notifications.index') }}"
                    aria-label="Notifications"
                    class="relative p-2.5 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 transition">
@@ -58,54 +58,52 @@
                         <span class="absolute top-2 right-2 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white dark:ring-gray-950"></span>
                     @endif
                 </a>
-                @endauth
 
                 {{-- User Dropdown --}}
-                @auth
-                    <x-dropdown align="right" width="48">
-                        <x-slot name="trigger">
-                            <button aria-label="User Menu" class="ms-1 flex items-center gap-2 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-900 transition focus:outline-none">
-                                @if(Auth::user()->hasAvatar())
-                                    <img src="{{ asset('storage/' . Auth::user()->avatar) }}" alt="{{ Auth::user()->name }}"
-                                        class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700">
-                                @else
-                                    <span class="w-8 h-8 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center ring-2 ring-gray-200 dark:ring-gray-700">
-                                        {{ Auth::user()->initials() }}
-                                    </span>
-                                @endif
-                            </button>
-                        </x-slot>
-                        <x-slot name="content">
-                            <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800">
-                                <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ Auth::user()->name }}</p>
-                                <p class="text-xs text-gray-500 truncate">{{ Auth::user()->email }}</p>
-                            </div>
-                            <x-dropdown-link :href="route('discover')">Discover circles</x-dropdown-link>
-                            <x-dropdown-link :href="route('circles.mine')">My circles</x-dropdown-link>
-                            <x-dropdown-link :href="route('teams.mine')">My teams</x-dropdown-link>
-                            <x-dropdown-link :href="route('users.show', Auth::user())">Profile</x-dropdown-link>
-                            <x-dropdown-link :href="route('profile.edit')">Edit profile</x-dropdown-link>
-                            <x-dropdown-link :href="route('messages.index')">Messages</x-dropdown-link>
-                            <x-dropdown-link :href="route('activities.saved')">Saved</x-dropdown-link>
-                            @if(Auth::user()->hasRole('admin'))
-                                <x-dropdown-link :href="route('admin.fees')">Fees</x-dropdown-link>
-                                <x-dropdown-link :href="route('admin.settings')">Settings</x-dropdown-link>
-                                <x-dropdown-link :href="route('admin.newsletter')">Newsletter</x-dropdown-link>
-                                <x-dropdown-link :href="route('blog.admin')">Guides</x-dropdown-link>
-                                <x-dropdown-link :href="route('admin.overview')">Platform</x-dropdown-link>
+                <x-dropdown align="right" width="48">
+                    <x-slot name="trigger">
+                        <button aria-label="User Menu" class="ms-1 flex items-center gap-2 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-900 transition focus:outline-none">
+                            @if(Auth::user()->hasAvatar())
+                                <img src="{{ asset('storage/' . Auth::user()->avatar) }}" alt="{{ Auth::user()->name }}"
+                                    class="w-8 h-8 rounded-full object-cover ring-2 ring-gray-200 dark:ring-gray-700">
+                            @else
+                                <span class="w-8 h-8 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center ring-2 ring-gray-200 dark:ring-gray-700">
+                                    {{ Auth::user()->initials() }}
+                                </span>
                             @endif
-                            <form method="POST" action="{{ route('logout') }}">
-                                @csrf
-                                <x-dropdown-link :href="route('logout')"
-                                    onclick="event.preventDefault(); this.closest('form').submit();">
-                                    Log out
-                                </x-dropdown-link>
-                            </form>
-                        </x-slot>
-                    </x-dropdown>
+                        </button>
+                    </x-slot>
+                    <x-slot name="content">
+                        <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+                            <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ Auth::user()->name }}</p>
+                            <p class="text-xs text-gray-500 truncate">{{ Auth::user()->email }}</p>
+                        </div>
+                        <x-dropdown-link :href="route('discover')">Discover circles</x-dropdown-link>
+                        <x-dropdown-link :href="route('circles.mine')">My circles</x-dropdown-link>
+                        <x-dropdown-link :href="route('teams.mine')">My teams</x-dropdown-link>
+                        <x-dropdown-link :href="route('users.show', Auth::user())">Profile</x-dropdown-link>
+                        <x-dropdown-link :href="route('profile.edit')">Edit profile</x-dropdown-link>
+                        <x-dropdown-link :href="route('messages.index')">Messages</x-dropdown-link>
+                        <x-dropdown-link :href="route('activities.saved')">Saved</x-dropdown-link>
+                        @if(Auth::user()->hasRole('admin'))
+                            <x-dropdown-link :href="route('admin.fees')">Fees</x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.settings')">Settings</x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.newsletter')">Newsletter</x-dropdown-link>
+                            <x-dropdown-link :href="route('blog.admin')">Guides</x-dropdown-link>
+                            <x-dropdown-link :href="route('admin.overview')">Platform</x-dropdown-link>
+                        @endif
+                        <form method="POST" action="{{ route('logout') }}">
+                            @csrf
+                            <x-dropdown-link :href="route('logout')"
+                                onclick="event.preventDefault(); this.closest('form').submit();">
+                                Log out
+                            </x-dropdown-link>
+                        </form>
+                    </x-slot>
+                </x-dropdown>
                 @else
                     <a href="{{ route('login') }}" class="text-sm text-gray-700 dark:text-gray-300 px-3">Log in</a>
-                    <a href="{{ route('register') }}" class="text-sm bg-indigo-600 text-white rounded-lg px-3 py-1.5">Join</a>
+                    <a href="{{ route('register') }}" class="text-sm bg-indigo-600 text-white rounded-lg px-3.5 py-1.5 font-medium">Join</a>
                 @endauth
             </div>
 
@@ -131,7 +129,6 @@
         </div>
     </div>
 
-    
     {{-- Mobile Panel --}}
     <div x-show="open" x-cloak class="sm:hidden border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
         <div class="px-3 py-3">
@@ -157,8 +154,8 @@
                     </div>
                 </div>
                 <a href="{{ route('dashboard') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Home</a>
-                <a href="{{ route('teams.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('teams.index') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Teams</a>
                 <a href="{{ route('discover') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('discover') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Discover circles</a>
+                <a href="{{ route('teams.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('teams.index') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Teams</a>
                 <a href="{{ route('circles.mine') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('circles.mine') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My circles</a>
                 <a href="{{ route('teams.mine') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('teams.mine') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My teams</a>
                 <a href="{{ route('friends.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('friends.*') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Friends</a>

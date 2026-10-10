@@ -126,7 +126,7 @@
                                                 </span>
                                             </div>
 
-                                            {{-- Delete Button (If Owner) --}}
+                                            {{-- Delete Button --}}
                                             @if($item->user_id === auth()->id())
                                                 <button type="button" 
                                                         data-action="delete" 
@@ -148,7 +148,7 @@
                                                     <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $item->title }}</p>
                                                 @endif
                                                 @if($item->body)
-                                                    <p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap break-all">{{ $item->body }}</p>
+                                                    <p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap break-words">{{ $item->body }}</p>
                                                 @endif
                                             @endif
                                         </a>
