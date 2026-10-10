@@ -1647,7 +1647,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
   })->middleware('throttle:invite')->name('teams.invite');
 
     Route::get('/admin/fees', function () {
-        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') {
+        if (!Auth::user()->hasRole('admin')) {
             abort(403);
         }
 
@@ -1660,7 +1660,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     })->name('admin.fees');
 
     Route::get('/admin/settings', function () {
-        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') abort(403);
+        if (!Auth::user()->hasRole('admin')) abort(403);
 
         return view('admin.settings', [
             'bank_name' => \App\Models\Setting::get('bank_name', ''),
@@ -1671,7 +1671,7 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     })->name('admin.settings');
 
     Route::post('/admin/settings', function (Illuminate\Http\Request $request) {
-        if (\Illuminate\Support\Facades\Auth::user()->role !== 'admin') abort(403);
+        if (!Auth::user()->hasRole('admin')) abort(403);
 
         $validated = $request->validate([
             'bank_name' => 'required|string|max:100',
