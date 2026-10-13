@@ -10,14 +10,14 @@
         <meta property="og:url" content="{{ url()->current() }}">
         <meta property="og:title" content="{{ $ogTitle ?? 'Ajo — Build what matters, together' }}">
         <meta property="og:description" content="{{ $ogDescription ?? 'Fund dreams with people you trust. Create a team, contribute, and track progress together.' }}">
-        <meta property="og:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}">
+        <meta property="og:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}?v=2">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
 
         <meta name="twitter:card" content="summary_large_image">
         <meta name="twitter:title" content="{{ $ogTitle ?? 'Ajo — Build what matters, together' }}">
         <meta name="twitter:description" content="{{ $ogDescription ?? 'Fund dreams with people you trust.' }}">
-        <meta name="twitter:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}">
+        <meta name="twitter:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}?v=2">
 
         <title>{{ config('app.name', 'Ajo') }}</title>
 
@@ -44,8 +44,8 @@
             <div class="w-full max-w-md pt-6 sm:pt-10 text-center">
                 <a href="/" class="inline-flex flex-col items-center gap-2 group transition transform active:scale-95">
                     <img src="{{ asset('images/ajo-logo.png') }}"
-                         alt="Ajo"
-                         class="h-12 sm:h-14 w-auto object-contain drop-shadow-sm">
+                        alt="Ajo"
+                        class="h-12 sm:h-14 w-auto object-contain drop-shadow-sm">
                     <span class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Ajo</span>
                 </a>
                 <p class="mt-1 text-xs sm:text-sm text-gray-500 dark:text-gray-400 font-medium">
@@ -75,7 +75,7 @@
         <script>
         setInterval(async () => {
             try {
-                const res = await fetch('{{ route('csrf.refresh') }}', { credentials: 'same-origin' });
+                const res = await fetch("{{ route('csrf.refresh') }}", { credentials: 'same-origin' });
                 const data = await res.json();
                 const meta = document.querySelector('meta[name="csrf-token"]');
                 if (meta && data.token) meta.content = data.token;

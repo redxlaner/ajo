@@ -5,28 +5,29 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
 
+        <!-- Open Graph Metadata -->
         <meta property="og:site_name" content="Ajo">
         <meta property="og:type" content="website">
         <meta property="og:url" content="{{ url()->current() }}">
-        <meta property="og:title" content="{{ $ogTitle ?? 'Ajo — Build what matters, together' }}">
-        <meta property="og:description" content="{{ $ogDescription ?? 'Fund dreams with people you trust. Create a team, contribute, and track progress together.' }}">
-        <meta property="og:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}">
+        <meta property="og:title" content="{{ $ogTitle ?? 'Ajo — Build wealth together, without bank debt' }}">
+        <meta property="og:description" content="{{ $ogDescription ?? 'Fund your goals, inventory, and milestones with people you trust using transparent rotational capital pools and automated vaults.' }}">
+        <meta property="og:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}?v=2">
         <meta property="og:image:width" content="1200">
         <meta property="og:image:height" content="630">
 
+        <!-- Twitter Card Metadata -->
         <meta name="twitter:card" content="summary_large_image">
-        <meta name="twitter:title" content="{{ $ogTitle ?? 'Ajo — Build what matters, together' }}">
-        <meta name="twitter:description" content="{{ $ogDescription ?? 'Fund dreams with people you trust.' }}">
-        <meta name="twitter:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}">
-
+        <meta name="twitter:title" content="{{ $ogTitle ?? 'Ajo — Build wealth together, without bank debt' }}">
+        <meta name="twitter:description" content="{{ $ogDescription ?? 'Fund your goals, inventory, and milestones with people you trust.' }}">
+        <meta name="twitter:image" content="{{ $ogImage ?? asset('images/ajo-logo.png') }}?v=2">
         <title>{{ config('app.name', 'Ajo') }}</title>
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
-        <link rel="icon" type="image/png" href="{{ asset('images/ajo-logo.png') }}">
-        <link rel="apple-touch-icon" href="{{ asset('images/ajo-logo.png') }}">
+        <link rel="icon" type="image/png" href="{{ asset('images/ajo-logo.png') }}?v=2">
+        <link rel="apple-touch-icon" href="{{ asset('images/ajo-logo.png') }}?v=2">
         <style>[x-cloak]{display:none!important}</style>
         
 

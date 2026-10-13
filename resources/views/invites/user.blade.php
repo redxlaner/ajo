@@ -8,14 +8,14 @@
     @php
         $shareImage = asset('images/ajo-og.jpg');
     @endphp
-    <meta property="og:image" content="{{ $shareImage }}">
-    <meta property="og:image:secure_url" content="{{ $shareImage }}">
+    <meta property="og:image" content="{{ $shareImage }}?v=2">
+    <meta property="og:image:secure_url" content="{{ $shareImage }}?v=2">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="{{ $project->title ?? $team->name ?? $inviter->name }} on Ajo">
     <meta name="twitter:description" content="Fund dreams together on Ajo.">
-    <meta name="twitter:image" content="{{ $shareImage }}">
+    <meta name="twitter:image" content="{{ $shareImage }}?v=2">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="font-sans antialiased bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center px-4">

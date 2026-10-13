@@ -61,22 +61,7 @@ Route::get('/api/discover/open', function () {
     return response()->json(['data' => $circles]);
 })->name('discover.api');
 
-Route::get('/circles/{slug}', function ($slug) {
-    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
 
-    $circle->slots()
-        ->where('status', 'reserved')
-        ->where('reserved_until', '<', now())
-        ->update([
-            'status' => 'open',
-            'user_id' => null,
-            'reserved_until' => null,
-        ]);
-
-    $circle->load(['host', 'slots.user', 'slots.payments']);
-
-    return view('circles.show', compact('circle'));
-})->name('circles.show');
 
 Route::get('/invite/{code}', function ($code) {
     $inviter = \App\Models\User::where('invite_code', $code)->firstOrFail();
@@ -3160,7 +3145,22 @@ Route::get('/circles/mine', function () {
     return view('circles.mine', compact('hosting', 'joined'));
 })->name('circles.mine');
 
+Route::get('/circles/{slug}', function ($slug) {
+    $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();
 
+    $circle->slots()
+        ->where('status', 'reserved')
+        ->where('reserved_until', '<', now())
+        ->update([
+            'status' => 'open',
+            'user_id' => null,
+            'reserved_until' => null,
+        ]);
+
+    $circle->load(['host', 'slots.user', 'slots.payments']);
+
+    return view('circles.show', compact('circle'));
+})->name('circles.show');
 
 Route::post('/circles/{slug}/slots/{slot}/reserve', function ($slug, $slot) {
     $circle = \App\Models\Circle::where('slug', $slug)->firstOrFail();

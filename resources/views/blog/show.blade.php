@@ -17,13 +17,13 @@
 <meta property="og:url" content="{{ $shareUrl }}">
 <meta property="og:title" content="{{ $post->title }}">
 <meta property="og:description" content="{{ $post->excerpt }}">
-<meta property="og:image" content="{{ $shareImage }}">
+<meta property="og:image" content="{{ $shareImage }}?v=2">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="{{ $post->title }}">
 <meta name="twitter:description" content="{{ $post->excerpt }}">
-<meta name="twitter:image" content="{{ $shareImage }}">
+<meta name="twitter:image" content="{{ $shareImage }}?v=2">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans antialiased">

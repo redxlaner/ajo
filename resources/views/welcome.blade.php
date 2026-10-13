@@ -13,14 +13,14 @@
     <meta property="og:url" content="{{ url('/') }}">
     <meta property="og:title" content="Ajo — Your goal deserves more than a group chat">
     <meta property="og:description" content="Pool money with people you trust. Live ledger, locked vault, and a real goal. Not a bank. Not a returns scheme.">
-    <meta property="og:image" content="{{ asset('images/ajo-og.jpg') }}">
+    <meta property="og:image" content="{{ asset('images/ajo-og.jpg') }}?v=2">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Ajo — Your goal deserves more than a group chat">
     <meta name="twitter:description" content="Pool money with people you trust. Live ledger, locked vault, and a real goal.">
-    <meta name="twitter:image" content="{{ asset('images/ajo-og.jpg') }}">
+    <meta name="twitter:image" content="{{ asset('images/ajo-og.jpg') }}?v=2">
     <link rel="icon" type="image/png" href="{{ asset('images/ajo-logo.png') }}">
     <link rel="apple-touch-icon" href="{{ asset('images/ajo-logo.png') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
