@@ -23,23 +23,26 @@
         </form>
 
         <div class="space-y-3">
-            @forelse ($circles as $circle)
-                <a href="{{ route('circles.show', $circle->slug) }}" class="block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
+            @forelse ($projects as $project)
+                <a href="{{ route('projects.show', [$project->community->slug, $project->id]) }}"
+                class="block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-4">
                     <div class="flex justify-between gap-3">
                         <div>
-                            <p class="font-semibold text-gray-900 dark:text-white">{{ $circle->title }}</p>
-                            <p class="text-sm text-gray-500">₦{{ number_format($circle->contribution_amount) }} · {{ $circle->frequency }} · host {{ $circle->host->name }}</p>
-                            <p class="text-xs text-gray-500">
-                                {{ number_format($circle->ratings_avg_score ?? 0, 1) }} / 5 · {{ $circle->ratings_count }} ratings
+                            <p class="font-semibold text-gray-900 dark:text-white">{{ $project->title }}</p>
+                            <p class="text-sm text-gray-500">
+                                ₦{{ number_format($project->contribution_amount ?? 0) }} · {{ $project->frequency }}
+                                · {{ $project->community->name }}
                             </p>
                         </div>
-                        <span class="text-sm font-medium text-indigo-600">{{ $circle->open_slots_count }} open</span>
+                        <span class="text-sm font-medium text-indigo-600">
+                            {{ $project->payoutSlots->where('status', 'open')->count() }} open
+                        </span>
                     </div>
                 </a>
             @empty
                 <p class="text-sm text-gray-500">No open circles yet.</p>
             @endforelse
-        </div>
-        <div class="mt-4">{{ $circles->links() }}</div>
+
+            <div class="mt-4">{{ $projects->links() }}</div>
     </div>
 </x-app-layout>

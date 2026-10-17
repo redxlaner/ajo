@@ -20,12 +20,29 @@ class Project extends Model
         'recurring_amount',
         'project_type',
         'member_target',
-    ];
+        'visibility',
+        'frequency',
+        'contribution_amount',
+        'slots_total',
+        'start_date',
+        'bank_name',
+        'account_name',
+        'account_number',
+        'summary',
+        'legacy_circle_id',
+        'grace_days',
+        'late_fee',
+        'missed_payment_action',
+            ];
 
-    protected $casts = [
-        'goal_amount' => 'decimal:2',
-        'deadline' => 'date',
-    ];
+    
+        protected $casts = [
+            'start_date' => 'date',
+            'contribution_amount' => 'decimal:2',
+            'goal_amount' => 'decimal:2',
+            'deadline' => 'date',
+        ];
+    
 
     public function community()
     {
@@ -80,5 +97,20 @@ class Project extends Model
     public function payoutSlots()
     {
         return $this->hasMany(\App\Models\ProjectPayoutSlot::class)->orderBy('position');
+    }
+
+    public function isPublic(): bool
+    {
+        return $this->visibility === 'public';
+    }
+
+    public function isRotational(): bool
+    {
+        return $this->project_type === 'rotational';
+    }
+
+    public function isGoal(): bool
+    {
+        return $this->project_type === 'goal';
     }
 }

@@ -148,7 +148,9 @@
                                                     <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $item->title }}</p>
                                                 @endif
                                                 @if($item->body)
-                                                    <p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap break-words">{{ $item->body }}</p>
+                                                    <div class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed break-words">
+                                                        {!! \App\Helpers\TextHelper::linkify($item->body) !!}
+                                                    </div>
                                                 @endif
                                             @endif
                                         </a>

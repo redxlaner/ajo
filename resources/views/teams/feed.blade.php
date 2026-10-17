@@ -52,6 +52,25 @@
                         <button class="bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-full">Save</button>
                     </form>
                 </details>
+
+                {{-- Feature a circle --}}
+                <details class="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4">
+                    <summary class="text-sm font-semibold text-gray-900 dark:text-white cursor-pointer">Feature a circle</summary>
+                    <form method="POST" action="{{ route('teams.feature-circle', $team->slug) }}" class="flex flex-col sm:flex-row gap-3 mt-3">
+                        @csrf
+                        <select name="project_id" class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5 text-sm">
+                            <option value="">None</option>
+                            @foreach($team->projects()->where('project_type', 'rotational')->latest()->get() as $circle)
+                                <option value="{{ $circle->id }}" @selected($team->featured_project_id == $circle->id)>
+                                    {{ $circle->title }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                            Save
+                        </button>
+                    </form>
+                </details>
             @endif
 
             {{-- Flash Messages --}}
@@ -63,6 +82,28 @@
             @if (session('error'))
                 <div class="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-300 text-xs font-medium">
                     {{ session('error') }}
+                </div>
+            @endif
+
+            {{-- Featured Circle --}}
+            @if($team->featuredProject && $team->featuredProject->project_type === 'rotational')
+                <div class="bg-white dark:bg-gray-900 rounded-2xl border border-indigo-200 dark:border-indigo-800 p-4 shadow-sm">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Team Circle</p>
+                            <h3 class="font-semibold text-gray-900 dark:text-white mt-0.5">{{ $team->featuredProject->title }}</h3>
+                            @if($team->featuredProject->description)
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{{ $team->featuredProject->description }}</p>
+                            @endif
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <a href="{{ route('projects.show', [$team->slug, $team->featuredProject->id]) }}"
+                        class="inline-flex items-center text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+                            View slots & join
+                            <svg class="w-3.5 h-3.5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </a>
+                    </div>
                 </div>
             @endif
 
@@ -82,7 +123,8 @@
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         <button type="button"
-                                onclick="navigator.clipboard.writeText(@js($teamShareUrl)); this.textContent='Copied!';"
+                                onclick="navigator.clipboard.writeText(this.dataset.copyLink); this.textContent='Copied!';"
+                                data-copy-link="{{ $teamShareUrl }}"
                                 class="text-xs font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white transition shadow-sm">
                             Copy Link
                         </button>
@@ -201,7 +243,7 @@
                                         <span class="text-xs text-gray-500" data-pct>{{ $pct }}%</span>
                                     </span>
                                     <span class="mt-1 block h-1.5 rounded-full bg-gray-100 dark:bg-gray-800">
-                                        <span class="block h-1.5 rounded-full bg-indigo-600" data-bar style="width: {{ $pct }}%"></span>
+                                        <span class="block h-1.5 rounded-full bg-indigo-600" data-bar @style(['width' => $pct . '%'])></span>
                                     </span>
                                 </button>
                             @else
@@ -275,10 +317,14 @@
                                                 <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $item->title }}</p>
                                             @endif
                                             @if($item->type === 'quote' && $item->quote_body)
-                                                <p class="text-sm text-gray-800 dark:text-gray-200 mt-1 whitespace-pre-wrap break-all">{{ $item->quote_body }}</p>
-                                            @endif
+                                                <div class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed break-words">
+                                                    {!! \App\Helpers\TextHelper::linkify($item->quote_body) !!}
+                                                </div>
+                                            @endif+++
                                             @if($item->body)
-                                                <p class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed whitespace-pre-wrap break-all">{{ $item->body }}</p>
+                                                <div class="text-sm text-gray-700 dark:text-gray-300 mt-1 leading-relaxed break-words">
+                                                    {!! \App\Helpers\TextHelper::linkify($item->body) !!}
+                                                </div>
                                             @endif
                                         @endif
                                     </a>

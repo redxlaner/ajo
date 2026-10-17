@@ -11,7 +11,8 @@ class Community extends Model
         'name', 'slug', 'description', 'cover_image',
         'created_by', 'is_discoverable', 'members_count',
         'bank_name', 'account_number', 'account_name', 
-        'visibility', 'member_limit', 'invites_open',
+        'visibility', 'member_limit', 'invites_open', 
+        'featured_project_id',
     ];
 
     protected $casts = [
@@ -135,5 +136,10 @@ public function isFull(): bool
 public function invitesOpen(): bool
 {
     return (bool) $this->invites_open && !$this->isFull();
+}
+
+public function featuredProject()
+{
+    return $this->belongsTo(\App\Models\Project::class, 'featured_project_id');
 }
 }

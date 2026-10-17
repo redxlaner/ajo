@@ -782,11 +782,12 @@ Route::get('/teams', function () {
         ->latest()
         ->paginate(12);
 
-    $projects = \App\Models\Project::with('community')
-        ->whereHas('community', fn ($q) => $q->where('is_discoverable', true))
+    $projects = \App\Models\Project::with(['community', 'creator'])
+        ->where('visibility', 'public')
         ->whereIn('status', ['active', 'goal_reached'])
+        ->whereHas('community', fn ($q) => $q->where('is_discoverable', true))
         ->latest()
-        ->take(8)
+        ->take(12)
         ->get();
 
     $myTeamIds = $joinedIds;
@@ -796,13 +797,17 @@ Route::get('/teams', function () {
 
 Route::get('/teams/mine', function () {
     $memberships = \App\Models\CommunityMember::where('user_id', Auth::id())
-        ->with('community')
+        ->with([
+            'community' => function ($q) {
+                $q->withCount(['members' => fn ($m) => $m->where('status', 'active')]);
+            }
+        ])
         ->where('status', 'active')
         ->latest()
         ->get();
 
     return view('teams.mine', compact('memberships'));
-})->name('teams.mine');
+})->middleware('auth')->name('teams.mine');
 
 // Create
 Route::get('/teams/create', fn () => view('teams.create'))->name('teams.create');
@@ -854,6 +859,9 @@ Route::get('/teams/{slug}', function ($slug) {
     $isMember = $team->isMember(\Illuminate\Support\Facades\Auth::user());
     $isAdmin = $team->isAdmin(\Illuminate\Support\Facades\Auth::user());
     $membership = $team->members()->where('user_id', request()->user()?->id)->first();
+
+    // Load featured circle
+    $team->load('featuredProject');
 
     $members = $isMember
         ? $team->activeMembers()->with('user')->get()
@@ -993,17 +1001,23 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
     $user = \Illuminate\Support\Facades\Auth::user();
     if (!$user || !$team->isMember($user)) abort(403);
 
+    $isRotational = $request->input('project_type') === 'rotational';
+
     $validated = $request->validate([
         'title' => 'required|string|max:200',
         'description' => 'nullable|string|max:5000',
-        'goal_amount' => 'required|numeric|min:1000',
+        'project_type' => 'required|in:goal,rotational',
+        'visibility' => 'required|in:public,private',
+        'goal_amount' => $isRotational ? 'nullable|numeric|min:0' : 'required|numeric|min:1000',
         'deadline' => 'nullable|date|after:today',
         'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
-        'contribution_type' => 'required|in:once,recurring',
-        'cadence' => 'nullable|in:weekly,monthly',
-        'recurring_amount' => 'nullable|numeric|min:0',
-        'project_type' => 'required|in:goal,rotational',
-        'member_target' => 'nullable|integer|min:2|max:100',
+        'contribution_amount' => $isRotational ? 'required|numeric|min:100' : 'nullable|numeric',
+        'frequency' => $isRotational ? 'required|in:daily,weekly,monthly' : 'nullable',
+        'slots_total' => $isRotational ? 'required|integer|min:2|max:31' : 'nullable|integer',
+        'start_date' => $isRotational ? 'required|date' : 'nullable|date',
+        'grace_days' => 'nullable|integer|min:0|max:14',
+        'late_fee' => 'nullable|numeric|min:0',
+        'missed_payment_action' => 'nullable|in:mark,fine,remove',
     ]);
 
     $cover = null;
@@ -1016,38 +1030,64 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
         'creator_id' => $user->id,
         'title' => $validated['title'],
         'description' => $validated['description'] ?? null,
-        'goal_amount' => $validated['goal_amount'],
+        'summary' => $validated['description'] ?? null,
+        'goal_amount' => $validated['goal_amount'] ?? 0,
         'deadline' => $validated['deadline'] ?? null,
         'cover_image' => $cover,
         'status' => 'active',
         'project_type' => $validated['project_type'],
-        'member_target' => $validated['project_type'] === 'rotational' ? ($validated['member_target'] ?? null) : null,
-        'contribution_type' => $validated['project_type'] === 'rotational' ? 'recurring' : $validated['contribution_type'],
-        'cadence' => $validated['project_type'] === 'rotational'
-            ? ($validated['cadence'] ?? 'monthly')
-            : ($validated['contribution_type'] === 'recurring' ? ($validated['cadence'] ?? 'monthly') : null),
-        'recurring_amount' => $validated['contribution_type'] === 'recurring' ? ($validated['recurring_amount'] ?? null) : null,
+        'visibility' => $validated['visibility'],
+        'contribution_amount' => $validated['contribution_amount'] ?? null,
+        'frequency' => $validated['frequency'] ?? null,
+        'slots_total' => $validated['slots_total'] ?? null,
+        'start_date' => $validated['start_date'] ?? null,
+        'grace_days' => $validated['grace_days'] ?? 3,
+        'late_fee' => $validated['late_fee'] ?? 0,
+        'missed_payment_action' => $validated['missed_payment_action'] ?? 'mark',
     ]);
 
-    // Create locked vault
+    // Locked vault (still useful for goal projects; optional for circles)
     \App\Models\ProjectVault::create([
         'project_id' => $project->id,
         'balance' => 0,
         'status' => 'locked',
     ]);
 
+    // Auto-create open slots for rotational / circle projects
+    if ($project->project_type === 'rotational' && $project->slots_total) {
+        $start = $project->start_date ? \Carbon\Carbon::parse($project->start_date) : now();
+        for ($i = 1; $i <= $project->slots_total; $i++) {
+            $due = match ($project->frequency) {
+                'daily' => $start->copy()->addDays($i - 1),
+                'weekly' => $start->copy()->addWeeks($i - 1),
+                default => $start->copy()->addMonths($i - 1),
+            };
+            \App\Models\ProjectPayoutSlot::create([
+                'project_id' => $project->id,
+                'position' => $i,
+                'status' => 'open',
+                'eligibility' => 'new',
+                'scheduled_payout_date' => $due,
+            ]);
+        }
+    }
+
     \App\Models\Activity::log([
-        'user_id' => \Illuminate\Support\Facades\Auth::id(),
+        'user_id' => $user->id,
         'community_id' => $team->id,
         'project_id' => $project->id,
         'type' => 'project_created',
-        'title' => \Illuminate\Support\Facades\Auth::user()->name . ' launched “' . $project->title . '”',
-        'body' => 'Goal ₦' . number_format($project->goal_amount, 0),
+        'title' => $user->name . ' launched “' . $project->title . '”',
+        'body' => $project->project_type === 'rotational'
+            ? 'Circle · ₦' . number_format($project->contribution_amount, 0) . ' · ' . $project->frequency
+            : 'Goal ₦' . number_format($project->goal_amount, 0),
         'url' => route('projects.show', [$team->slug, $project->id]),
     ]);
 
     return redirect()->route('projects.show', [$team->slug, $project->id])
-        ->with('message', 'Project created. Vault is locked and ready to receive contributions.');
+        ->with('message', $project->project_type === 'rotational'
+            ? 'Circle created. Slots are open.'
+            : 'Project created. Vault is locked and ready to receive contributions.');
 })->middleware('throttle:create-project')->name('projects.store');
 
 // Show project
@@ -1125,6 +1165,11 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         return back()->with('message', 'Contribution submitted. Waiting for confirmation.');
     })->middleware('throttle:money')->name('projects.contribute');
 
+    Route::get('/teams/{slug}/projects/{projectId}/contributions/{contributionId}/confirm', function ($slug, $projectId) {
+        return redirect()->route('projects.show', [$slug, $projectId])
+            ->with('message', 'Use the Confirm button on the project page.');
+    })->middleware('auth');
+
     // Confirm contribution (community admin or project creator)
     Route::post('/teams/{slug}/projects/{projectId}/contributions/{contributionId}/confirm', function ($slug, $projectId, $contributionId) {
         $team = \App\Models\Community::where('slug', $slug)->first();
@@ -1162,6 +1207,18 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         ]);
 
         $project->vault->increment('balance', $contribution->amount);
+
+        // Lock reserved slot → active on first confirmed contribution (circles)
+        if ($project->project_type === 'rotational') {
+            $slot = $project->payoutSlots()
+                ->where('user_id', $contribution->user_id)
+                ->where('status', 'reserved')
+                ->first();
+
+            if ($slot) {
+                $slot->update(['status' => 'active']);
+            }
+        }
 
         $vaultBalance = $project->vault->fresh()->balance;
 
@@ -1261,6 +1318,10 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         return back()->with('message', 'Contribution confirmed. Vault balance updated.');
     })->middleware('throttle:money')->name('projects.contributions.confirm');
+
+    Route::get('/teams/{slug}/projects/{projectId}/contributions/{contributionId}/reject', function ($slug, $projectId) {
+        return redirect()->route('projects.show', [$slug, $projectId]);
+    })->middleware('auth');
 
     Route::post('/teams/{slug}/projects/{projectId}/contributions/{contributionId}/reject', function ($slug, $projectId, $contributionId) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
@@ -1496,6 +1557,9 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
         $isAdmin = $team->isAdmin(request()->user());
 
+        // Load featured circle
+        $team->load('featuredProject');
+
         $feed = \App\Models\Activity::with([
             'user',
             'community',
@@ -1509,11 +1573,11 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         ->paginate(20);
 
         $polls = $team->polls()
-        ->with(['options.votes', 'votes'])
-        ->where('status', 'open')
-        ->latest()
-        ->take(3)
-        ->get();
+            ->with(['options.votes', 'votes'])
+            ->where('status', 'open')
+            ->latest()
+            ->take(3)
+            ->get();
 
         return view('teams.feed', compact('team', 'feed', 'isAdmin', 'polls'));
     })->name('teams.feed');
@@ -2201,40 +2265,95 @@ Route::delete('/friends/{friendship}/cancel', function (\App\Models\Friendship $
 })->name('friends.cancel');
 
 Route::delete('/friends/{user}', function (\App\Models\User $user) {
-    \App\Models\Friendship::where(function ($q) use ($user) {
-        $q->where('user_id', \Illuminate\Support\Facades\Auth::id())->where('friend_id', $user->id);
-    })->orWhere(function ($q) use ($user) {
-        $q->where('user_id', $user->id)->where('friend_id', \Illuminate\Support\Facades\Auth::id());
-    })->delete();
-    return back()->with('message', 'Removed from friends.');
+    $authId = \Illuminate\Support\Facades\Auth::id();
+
+    $friendship = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($q) use ($authId, $user) {
+            $q->where('user_id', $authId)->where('friend_id', $user->id)
+              ->orWhere(fn ($q2) => $q2->where('user_id', $user->id)->where('friend_id', $authId));
+        })
+        ->first();
+
+    if ($friendship) {
+        $friendship->delete();
+    }
+
+    return back()->with('message', 'Unfriended.');
 })->name('friends.destroy');
 
 Route::get('/friends', function () {
     $userId = \Illuminate\Support\Facades\Auth::id();
-    $ids = \App\Models\Friendship::where('status', 'accepted')
-        ->where(function ($query) use ($userId) {
-            $query->where('user_id', $userId)->orWhere('friend_id', $userId);
+
+    // Accepted friends only
+    $friendRows = \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($q) use ($userId) {
+            $q->where('user_id', $userId)->orWhere('friend_id', $userId);
         })
-        ->get(['user_id', 'friend_id'])
-        ->map(fn ($friendship) => $friendship->user_id === $userId
-            ? $friendship->friend_id
-            : $friendship->user_id);
-    $friends = \App\Models\User::whereIn('id', $ids)->orderBy('name')->get();
+        ->get(['user_id', 'friend_id']);
+
+    $friendIds = $friendRows->map(fn ($f) => $f->user_id === $userId ? $f->friend_id : $f->user_id);
+    $friends = \App\Models\User::whereIn('id', $friendIds)->orderBy('name')->get();
+
+    // Pending incoming
     $pending = \App\Models\Friendship::with('requester')
-        ->where('friend_id', \Illuminate\Support\Facades\Auth::id())
+        ->where('friend_id', $userId)
         ->where('status', 'pending')
         ->latest()
         ->get();
-    $excludedIds = \App\Models\Friendship::where(function ($query) use ($userId) {
-        $query->where('user_id', $userId)->orWhere('friend_id', $userId);
-    })->get(['user_id', 'friend_id'])
-        ->flatMap(fn ($friendship) => [$friendship->user_id, $friendship->friend_id])
+
+    // Exclude self + accepted friends + pending (both directions)
+    $pendingIds = \App\Models\Friendship::where('status', 'pending')
+        ->where(function ($q) use ($userId) {
+            $q->where('user_id', $userId)->orWhere('friend_id', $userId);
+        })
+        ->get(['user_id', 'friend_id'])
+        ->flatMap(fn ($f) => [$f->user_id, $f->friend_id]);
+
+    $excludedIds = $friendRows
+        ->flatMap(fn ($f) => [$f->user_id, $f->friend_id])
+        ->merge($pendingIds)
         ->push($userId)
         ->unique();
-    $suggestions = \App\Models\User::whereNotIn('id', $excludedIds)
-        ->orderBy('name')
-        ->limit(8)
-        ->get();
+
+    // Teams the current user belongs to
+    $myTeamIds = \App\Models\CommunityMember::where('user_id', $userId)
+        ->where('status', 'active')
+        ->pluck('community_id');
+
+    // Teammates
+    $teammateIds = \App\Models\CommunityMember::whereIn('community_id', $myTeamIds)
+        ->where('user_id', '!=', $userId)
+        ->where('status', 'active')
+        ->whereNotIn('user_id', $excludedIds)
+        ->pluck('user_id')
+        ->unique()
+        ->take(12);
+
+    $suggestions = \App\Models\User::whereIn('id', $teammateIds)
+        ->get()
+        ->map(fn ($user) => (object) [
+            'user' => $user,
+            'from_team' => true,
+            'mutual' => 0,
+        ]);
+
+    // Fallback
+    if ($suggestions->count() < 8) {
+        $extraIds = \App\Models\User::whereNotIn('id', $excludedIds->merge($teammateIds))
+            ->orderBy('name')
+            ->limit(8 - $suggestions->count())
+            ->pluck('id');
+
+        $extra = \App\Models\User::whereIn('id', $extraIds)
+            ->get()
+            ->map(fn ($user) => (object) [
+                'user' => $user,
+                'from_team' => false,
+                'mutual' => 0,
+            ]);
+
+        $suggestions = $suggestions->concat($extra);
+    }
 
     return view('friends.index', compact('friends', 'pending', 'suggestions'));
 })->name('friends.index');
@@ -2926,11 +3045,18 @@ Route::post('/teams/{slug}/projects/{project}/ballot', function ($slug, \App\Mod
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     abort_unless($project->community_id === $team->id, 404);
     abort_unless($team->isAdmin(\Illuminate\Support\Facades\Auth::user()) || $project->creator_id === \Illuminate\Support\Facades\Auth::id(), 403);
-    abort_if($project->ballot, 422, 'This pool already has a draw.');
+
+    if ($project->ballot) {
+        return back()->with('error', 'This circle already has a draw.');
+    }
 
     $members = $team->members()->where('status', 'active')->pluck('user_id')->unique()->values()->all();
-    abort_if(count($members) < 2, 422, 'Need at least 2 members.');
 
+    if (count($members) < 2) {
+        return back()->with('error', 'Need at least 2 active members before drawing the payout order.');
+    }
+
+    // shuffle
     for ($i = count($members) - 1; $i > 0; $i--) {
         $j = random_int(0, $i);
         [$members[$i], $members[$j]] = [$members[$j], $members[$i]];
@@ -3116,19 +3242,30 @@ Route::post('/circles', function (\Illuminate\Http\Request $request) {
 })->middleware('throttle:create-team')->name('circles.store');
 
 Route::get('/discover', function () {
-    $circles = \App\Models\Circle::with(['host', 'slots'])
-        ->withCount(['slots as open_slots_count' => fn ($q) => $q->where('status', 'open')])
-        ->withAvg('ratings', 'score')
-        ->withCount('ratings')
+    $joinedIds = \App\Models\CommunityMember::where('user_id', \Illuminate\Support\Facades\Auth::id())
+        ->whereIn('status', ['active', 'pending'])
+        ->pluck('community_id');
+
+    $teams = \App\Models\Community::with('creator')
+        ->withCount(['members' => fn ($q) => $q->where('status', 'active')])
+        ->where('is_discoverable', true)
+        ->whereNotIn('id', $joinedIds)
+        ->latest()
+        ->paginate(12);
+
+    $projects = \App\Models\Project::with(['community', 'creator', 'payoutSlots'])
         ->where('visibility', 'public')
-        ->where('status', 'open')
+        ->whereIn('status', ['active', 'goal_reached'])
+        ->where('project_type', 'rotational')
         ->when(request('frequency'), fn ($q, $f) => $q->where('frequency', $f))
         ->when(request('max_amount'), fn ($q, $n) => $q->where('contribution_amount', '<=', (int) $n))
         ->latest()
         ->paginate(12);
 
-    return view('circles.discover', compact('circles'));
-})->name('discover');
+    $myTeamIds = $joinedIds;
+
+    return view('teams.index', compact('teams', 'projects', 'myTeamIds'));
+})->middleware('auth')->name('discover');
 
 Route::get('/circles/mine', function () {
     $hosting = \App\Models\Circle::withCount(['slots as open_slots_count' => fn ($q) => $q->where('status', 'open')])
@@ -3432,7 +3569,87 @@ Route::post('/circles/{slug}/rate', function ($slug, \Illuminate\Http\Request $r
     return back()->with('message', 'Rating saved.');
 })->name('circles.rate');
 
+Route::post('/teams/{slug}/feature-circle', function (\Illuminate\Http\Request $request, $slug) {
+    $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
+    abort_unless($team->isAdmin(\Illuminate\Support\Facades\Auth::user()), 403);
+
+    $validated = $request->validate([
+        'project_id' => 'nullable|exists:projects,id',
+    ]);
+
+    $projectId = $validated['project_id'] ?? null;
+
+    if ($projectId) {
+        $project = $team->projects()->where('id', $projectId)->where('project_type', 'rotational')->first();
+        if (!$project) {
+            return back()->with('error', 'You can only feature a rotational circle that belongs to this team.');
+        }
+    }
+
+    $team->update(['featured_project_id' => $projectId]);
+
+    return back()->with('message', $projectId ? 'Circle featured on team.' : 'Featured circle removed.');
+})->name('teams.feature-circle');
+
+Route::post('/teams/{slug}/projects/{projectId}/slots/{slotId}/reserve', function ($slug, $projectId, $slotId) {
+    $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
+    $project = $team->projects()->findOrFail($projectId);
+
+    if ($project->project_type !== 'rotational') {
+        return back()->with('error', 'This is not a circle.');
+    }
+
+    $slot = $project->payoutSlots()->where('id', $slotId)->where('status', 'open')->firstOrFail();
+
+    // Optional: require team membership first
+    if (!$team->isMember(\Illuminate\Support\Facades\Auth::user())) {
+        return redirect()->route('teams.join-link', $slug)
+            ->with('message', 'Join the team first, then reserve a slot.');
+    }
+
+    $slot->update([
+        'user_id' => \Illuminate\Support\Facades\Auth::id(),
+        'status' => 'reserved',
+        'reserved_until' => now()->addHours(24), // optional hold window
+    ]);
+
+    return back()->with('message', 'Slot reserved. Complete your first contribution to lock it in.');
+})->middleware('auth')->name('projects.slots.reserve');
+
+Route::post('/teams/{slug}/projects/{projectId}/slots/{slotId}/payout', function ($slug, $projectId, $slotId) {
+    $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
+    $project = $team->projects()->findOrFail($projectId);
+    $currentUser = \Illuminate\Support\Facades\Auth::user();
+
+    if (!$team->isAdmin($currentUser) && $project->creator_id !== $currentUser?->id) {
+        abort(403);
+    }
+
+    $slot = $project->payoutSlots()->where('id', $slotId)->where('status', 'active')->firstOrFail();
+    $slotUser = $slot->user;
+
+    $slot->update([
+        'status' => 'paid',
+        'paid_at' => now(),
+    ]);
+
+    \App\Models\Activity::log([
+        'user_id' => $currentUser?->id,
+        'community_id' => $team->id,
+        'project_id' => $project->id,
+        'type' => 'milestone',
+        'title' => ($slotUser?->name ?? 'Member') . ' collected ₦' . number_format($project->contribution_amount, 0),
+        'body' => 'Circle payout · position ' . $slot->position,
+        'url' => route('projects.show', [$team->slug, $project->id]),
+    ]);
+
+    return back()->with('message', 'Payout marked. Slot closed.');
+})->middleware('auth')->name('projects.slots.payout');
+
 });
+
+
+ // ====================== WELFARE ======================
 
 
 Route::middleware(['auth', 'ajo.only'])->group(function () {

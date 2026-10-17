@@ -21,9 +21,9 @@
             </div>
 
             <div class="space-y-3">
-                @forelse($teams as $team)
-                    <a href="{{ $myTeamIds->contains($team->id) ? route('teams.feed', $team->slug) : route('teams.show', $team->slug) }}"
-                     class="block bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 hover:border-indigo-400 transition">
+                @forelse($teams ?? [] as $team)
+                    <a href="{{ ($myTeamIds ?? collect())->contains($team->id) ? route('teams.feed', $team->slug) : route('teams.show', $team->slug) }}"
+                    class="block bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 hover:border-indigo-400 transition">
                         <div class="flex gap-3">
                             <span class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white font-bold flex items-center justify-center shrink-0">
                                 {{ strtoupper(substr($team->name, 0, 1)) }}
@@ -31,7 +31,7 @@
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-start justify-between gap-2">
                                     <h3 class="font-semibold text-gray-900 dark:text-white">{{ $team->name }}</h3>
-                                    @if($myTeamIds->contains($team->id))
+                                    @if(($myTeamIds ?? collect())->contains($team->id))
                                         <span class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">Joined</span>
                                     @endif
                                 </div>
@@ -39,7 +39,7 @@
                                     {{ $team->description ?? 'No description' }}
                                 </p>
                                 <p class="text-xs text-gray-400 mt-2">
-                                    {{ $team->members_count }} members · {{ $team->creator->name }}
+                                    {{ $team->members_count ?? 0 }} members · {{ $team->creator->name ?? '—' }}
                                 </p>
                             </div>
                         </div>
@@ -48,22 +48,38 @@
                     <div class="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 p-10 text-center text-sm text-gray-500">
                         No teams yet. Create the first one.
                     </div>
-                 @endforelse
+                @endforelse
                 </div>
 
-                <div class="pt-2">
-                    {{ $teams->links() }}
-                </div>
+                @if(isset($teams) && method_exists($teams, 'links'))
+                    <div class="pt-2">
+                        {{ $teams->links() }}
+                    </div>
+                @endif
 
-                <h2 class="text-sm font-semibold text-gray-900 dark:text-white">Projects you can join</h2>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-white mt-6">Projects & circles you can join</h2>
                 <div class="space-y-3">
                     @forelse($projects ?? [] as $project)
-                        <a href="{{ route('invite.project.public', [$project->community->slug, $project->id]) }}"
-                        class="block bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4">
+                        <a href="{{ route('projects.show', [$project->community->slug, $project->id]) }}"
+                        class="block bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-4 hover:border-indigo-400 transition">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full
+                                    {{ $project->project_type === 'rotational' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800' }}">
+                                    {{ $project->project_type === 'rotational' ? 'Circle' : 'Goal' }}
+                                </span>
+                                <span class="text-xs text-gray-500 truncate">{{ $project->community->name }}</span>
+                            </div>
                             <p class="font-semibold text-gray-900 dark:text-white">{{ $project->title }}</p>
-                            <p class="text-xs text-gray-500 mt-1">
-                                {{ $project->community->name }} · Goal ₦{{ number_format($project->goal_amount, 0) }}
-                            </p>
+                            @if($project->project_type === 'rotational')
+                                <p class="text-xs text-gray-500 mt-1">
+                                    ₦{{ number_format($project->contribution_amount ?? 0, 0) }} · {{ ucfirst($project->frequency ?? 'monthly') }}
+                                    · {{ $project->payoutSlots->where('status', 'open')->count() }} open slots
+                                </p>
+                            @else
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Goal ₦{{ number_format($project->goal_amount, 0) }}
+                                </p>
+                            @endif
                         </a>
                     @empty
                         <p class="text-sm text-gray-500">No open projects yet.</p>

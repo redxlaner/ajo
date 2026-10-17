@@ -18,39 +18,30 @@
             {{-- Desktop Actions --}}
             <div class="hidden sm:flex items-center gap-1">
                 <a href="{{ route('dashboard') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('dashboard') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('dashboard') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Home
                 </a>
-
                 <a href="{{ route('discover') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('discover') || request()->routeIs('circles.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('discover') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Discover
                 </a>
-
                 <a href="{{ route('teams.index') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('teams.*') || request()->routeIs('projects.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('teams.*') || request()->routeIs('projects.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Teams
                 </a>
-
                 <a href="{{ route('friends.index') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('friends.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('friends.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     Friends
                 </a>
-
-                <a href="{{ route('blog.index') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('blog.*') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
-                    Learn
-                </a>
-
                 <a href="{{ route('my.contributions') }}"
-                   class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('my.contributions') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
+                class="p-2.5 rounded-xl text-sm font-medium transition {{ request()->routeIs('my.contributions') ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900' }}">
                     My Funds
                 </a>
 
                 @auth
                 <a href="{{ route('notifications.index') }}"
-                   aria-label="Notifications"
-                   class="relative p-2.5 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 transition">
+                aria-label="Notifications"
+                class="relative p-2.5 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900 transition">
                     <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
                     </svg>
@@ -59,7 +50,6 @@
                     @endif
                 </a>
 
-                {{-- User Dropdown --}}
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
                         <button aria-label="User Menu" class="ms-1 flex items-center gap-2 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-900 transition focus:outline-none">
@@ -78,18 +68,16 @@
                             <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ Auth::user()->name }}</p>
                             <p class="text-xs text-gray-500 truncate">{{ Auth::user()->email }}</p>
                         </div>
-                        <x-dropdown-link :href="route('discover')">Discover circles</x-dropdown-link>
-                        <x-dropdown-link :href="route('circles.mine')">My circles</x-dropdown-link>
-                        <x-dropdown-link :href="route('teams.mine')">My teams</x-dropdown-link>
                         <x-dropdown-link :href="route('users.show', Auth::user())">Profile</x-dropdown-link>
                         <x-dropdown-link :href="route('profile.edit')">Edit profile</x-dropdown-link>
+                        <x-dropdown-link :href="route('circles.mine')">My circles</x-dropdown-link>
+                        <x-dropdown-link :href="route('teams.mine')">My teams</x-dropdown-link>
                         <x-dropdown-link :href="route('messages.index')">Messages</x-dropdown-link>
                         <x-dropdown-link :href="route('activities.saved')">Saved</x-dropdown-link>
+                        <x-dropdown-link :href="route('blog.index')">Learn</x-dropdown-link>
                         @if(Auth::user()->hasRole('admin'))
                             <x-dropdown-link :href="route('admin.fees')">Fees</x-dropdown-link>
                             <x-dropdown-link :href="route('admin.settings')">Settings</x-dropdown-link>
-                            <x-dropdown-link :href="route('admin.newsletter')">Newsletter</x-dropdown-link>
-                            <x-dropdown-link :href="route('blog.admin')">Guides</x-dropdown-link>
                             <x-dropdown-link :href="route('admin.overview')">Platform</x-dropdown-link>
                         @endif
                         <form method="POST" action="{{ route('logout') }}">
@@ -156,15 +144,12 @@
                 <a href="{{ route('dashboard') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('dashboard') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Home</a>
                 <a href="{{ route('discover') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('discover') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Discover circles</a>
                 <a href="{{ route('teams.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('teams.index') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Teams</a>
+                <a href="{{ route('friends.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('friends.*') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Friends</a>
+                <a href="{{ route('my.contributions') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('my.contributions') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My funds</a>
                 <a href="{{ route('circles.mine') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('circles.mine') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My circles</a>
                 <a href="{{ route('teams.mine') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('teams.mine') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My teams</a>
-                <a href="{{ route('friends.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('friends.*') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Friends</a>
-                <a href="{{ route('blog.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('blog.*') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">Learn</a>
-                <a href="{{ route('my.contributions') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium {{ request()->routeIs('my.contributions') ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold' : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900' }}">My funds</a>
-                <a href="{{ route('teams.create') }}" class="block px-3 py-2.5 rounded-xl text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60">+ Create team</a>
                 <hr class="my-1 border-gray-100 dark:border-gray-900">
                 <a href="{{ route('users.show', Auth::user()) }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900">Profile</a>
-                <a href="{{ route('profile.edit') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-900">Edit profile</a>
                 <a href="{{ route('messages.index') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900">Messages</a>
                 <a href="{{ route('activities.saved') }}" class="block px-3 py-2.5 rounded-xl text-sm font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-900">Saved</a>
                 @if(Auth::user()->hasRole('admin'))

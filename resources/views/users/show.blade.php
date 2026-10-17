@@ -47,7 +47,7 @@
                             @endif
                         </p>
 
-                        @if(auth()->user()->isFriendWith($user))
+                        @if(auth()->user()->isFriendsWith($user))
                             <a href="{{ route('messages.show', $user) }}"
                             class="inline-flex items-center px-4 py-2 rounded-full bg-indigo-600 text-white text-sm font-semibold">
                                 Message
@@ -91,13 +91,13 @@
                 @auth
                     @if($user->id !== auth()->id())
                         <div class="mt-4 flex flex-wrap gap-2">
-                            @if(auth()->user()->isFriendsWith($user))
-                                <form method="POST" action="{{ route('friends.destroy', $user) }}">
+                            @if($outgoing = auth()->user()->pendingFriendRequestTo($user))
+                                <form method="POST" action="{{ route('friends.cancel', $outgoing) }}">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit"
                                             class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-                                        Unfriend
+                                        Cancel request
                                     </button>
                                 </form>
                             @elseif($incoming = auth()->user()->pendingFriendRequestFrom($user))
@@ -115,13 +115,13 @@
                                         Decline
                                     </button>
                                 </form>
-                            @elseif($outgoing = auth()->user()->pendingFriendRequestTo($user))
-                                <form method="POST" action="{{ route('friends.cancel', $outgoing) }}">
+                            @elseif(auth()->user()->isFriendsWith($user))
+                                <form method="POST" action="{{ route('friends.destroy', $user) }}">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit"
                                             class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-                                        Cancel request
+                                        Unfriend
                                     </button>
                                 </form>
                             @else
@@ -134,22 +134,22 @@
                                 </form>
                             @endif
                         </div>
-                                        @else
+                    @else
                         <div class="mt-4 flex flex-wrap gap-2">
                             <a href="{{ route('profile.edit') }}"
-                               class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
                                 Edit profile
                             </a>
                             <a href="{{ route('users.friends', $user) }}"
-                               class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
                                 Friends
                             </a>
                             <a href="{{ route('activities.saved') }}"
-                               class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            class="text-sm font-medium px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
                                 Saved
                             </a>
                             <a href="{{ route('profile.edit') }}#invite"
-                               class="text-sm font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white">
+                            class="text-sm font-semibold px-4 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white">
                                 Invite friends
                             </a>
                         </div>

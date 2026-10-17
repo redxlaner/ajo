@@ -40,7 +40,7 @@
                             <p class="text-sm text-gray-500 dark:text-gray-400">{{ $team->name }}</p>
                             <h1 class="text-lg font-bold text-gray-900 dark:text-white">{{ $project->title }}</h1>
                             <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                by {{ $project->creator->name }}
+                                by {{ $project->creator?->name ?? 'Unknown' }}
                                 @if($project->deadline)
                                     · Deadline {{ $project->deadline->format('d M Y') }}
                                 @endif
@@ -77,7 +77,7 @@
                             <span class="capitalize">Vault {{ $project->vault->status }}</span>
                         </div>
                         <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2.5">
-                            <div class="bg-indigo-500 h-2.5 rounded-full" style="width: {{ $progress }}%"></div>
+                            <div class="bg-indigo-500 h-2.5 rounded-full" @style(['width' => $progress . '%'])></div>
                         </div>
                     </div>
 
@@ -133,18 +133,56 @@
                     <div class="space-y-2">
                         @foreach($slots as $slot)
                             <div class="flex items-center gap-3 p-3 rounded-xl border {{ $slot->user_id === auth()->id() ? 'border-indigo-400' : 'border-gray-200 dark:border-gray-700' }}">
-                                <span class="w-9 h-9 rounded-full bg-indigo-600 text-white text-sm font-bold flex items-center justify-center shrink-0">{{ $slot->position }}</span>
+                                <span class="w-9 h-9 rounded-full bg-indigo-600 text-white text-sm font-bold flex items-center justify-center shrink-0">
+                                    {{ $slot->position }}
+                                </span>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                                        {{ $slot->user->name }}
-                                        @if($slot->user_id === auth()->id()) <span class="text-indigo-600">· You</span> @endif
+                                    <div class="flex items-center gap-2">
+                                        <p class="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                            {{ $slot->user?->name ?? 'Open' }}
+                                            @if($slot->user_id === auth()->id()) <span class="text-indigo-600">· You</span> @endif
+                                        </p>
+                                        <span class="text-[10px] font-medium px-2 py-0.5 rounded-full
+                                            {{ $slot->status === 'open' ? 'bg-green-100 text-green-800' : '' }}
+                                            {{ $slot->status === 'reserved' ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                            {{ $slot->status === 'active' ? 'bg-blue-100 text-blue-800' : '' }}
+                                            {{ $slot->status === 'paid' ? 'bg-gray-100 text-gray-800' : '' }}">
+                                            {{ ucfirst($slot->status) }}
+                                        </span>
+                                    </div>
+                                    <p class="text-xs text-gray-500">
+                                        @if($slot->scheduled_payout_date)
+                                            Collects {{ $slot->scheduled_payout_date->format('D d M Y') }}
+                                        @else
+                                            Date not set
+                                        @endif
                                     </p>
-                                    <p class="text-xs text-gray-500">Collects {{ $slot->scheduled_payout_date->format('D d M Y') }}</p>
                                 </div>
-                                @if($ballot && $ballot->swapsOpen() && $slot->user_id !== auth()->id())
+                                @if($ballot && $ballot->swapsOpen() && $slot->user_id && $slot->user_id !== auth()->id())
                                     <form method="POST" action="{{ route('projects.slots.swap', [$team->slug, $project->id, $slot->id]) }}">
                                         @csrf
                                         <button class="text-xs font-semibold text-indigo-600">Swap</button>
+                                    </form>
+                                @endif
+                                @if($slot->status === 'open' && $slot->user_id === null)
+                                    <form method="POST" action="{{ route('projects.slots.reserve', [$team->slug, $project->id, $slot->id]) }}">
+                                        @csrf
+                                        <button class="text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg">
+                                            Reserve
+                                        </button>
+                                    </form>
+                                @endif
+                                @if($slot->status === 'reserved' && $slot->reserved_until)
+                                    <p class="text-[10px] text-amber-600">
+                                        Reserved until {{ $slot->reserved_until->format('d M H:i') }}
+                                    </p>
+                                @endif
+                                @if(($isAdmin || $isCreator) && $slot->status === 'active')
+                                    <form method="POST" action="{{ route('projects.slots.payout', [$team->slug, $project->id, $slot->id]) }}">
+                                        @csrf
+                                        <button class="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg">
+                                            Mark paid
+                                        </button>
                                     </form>
                                 @endif
                             </div>
@@ -155,6 +193,26 @@
                         <p class="text-[11px] text-gray-400 break-all">Verified draw · {{ $ballot->draw_hash }}</p>
                     @endif
                 </section>
+            @endif
+
+            @if($project->project_type === 'rotational')
+                <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
+                    <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Circle rules</h3>
+                    <div class="grid grid-cols-3 gap-3 text-sm">
+                        <div>
+                            <p class="text-gray-500">Grace days</p>
+                            <p class="font-medium text-gray-900 dark:text-white">{{ $project->grace_days ?? 3 }}</p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">Late fee</p>
+                            <p class="font-medium text-gray-900 dark:text-white">₦{{ number_format($project->late_fee ?? 0, 0) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-gray-500">Missed payment</p>
+                            <p class="font-medium text-gray-900 dark:text-white capitalize">{{ $project->missed_payment_action ?? 'mark' }}</p>
+                        </div>
+                    </div>
+                </div>
             @endif
 
                         {{-- Share win (goal reached / completed) --}}

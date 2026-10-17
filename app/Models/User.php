@@ -161,7 +161,14 @@ public function friendsCount(): int
 
 public function isFriendsWith(\App\Models\User $other): bool
 {
-    return $this->friendIds()->contains($other->id);
+    return \App\Models\Friendship::where('status', 'accepted')
+        ->where(function ($q) use ($other) {
+            $q->where('user_id', $this->id)->where('friend_id', $other->id)
+              ->orWhere(function ($q2) use ($other) {
+                  $q2->where('user_id', $other->id)->where('friend_id', $this->id);
+              });
+        })
+        ->exists();
 }
 
 public function pendingFriendRequestTo(\App\Models\User $other): ?\App\Models\Friendship
@@ -266,16 +273,7 @@ public function findForLogin(string $login): ?self
 
 public function isFriendWith(User $other): bool
 {
-    return \App\Models\Friendship::where('status', 'accepted')
-        ->where(function ($q) use ($other) {
-            $q->where('user_id', $this->id)->where('friend_id', $other->id);
-        })
-        ->orWhere(function ($q) use ($other) {
-            $q->where('status', 'accepted')
-              ->where('user_id', $other->id)
-              ->where('friend_id', $this->id);
-        })
-        ->exists();
+    return $this->isFriendsWith($other);
 }
 
 public function isKnownTo(\App\Models\User $host): bool

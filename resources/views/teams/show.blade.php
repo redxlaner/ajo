@@ -78,6 +78,23 @@
                 </div>
             </div>
 
+            {{-- Featured Circle --}}
+            @if($isMember && $team->featuredProject && $team->featuredProject->project_type === 'rotational')
+                <div class="bg-white dark:bg-gray-800 rounded-2xl border border-indigo-200 dark:border-indigo-800 p-5 mb-6">
+                    <p class="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Team Circle</p>
+                    <h3 class="font-semibold text-gray-900 dark:text-white mt-1">{{ $team->featuredProject->title }}</h3>
+                    @if($team->featuredProject->description)
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $team->featuredProject->description }}</p>
+                    @endif
+                    <div class="mt-3">
+                        <a href="{{ route('projects.show', [$team->slug, $team->featuredProject->id]) }}"
+                        class="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                            View slots & join →
+                        </a>
+                    </div>
+                </div>
+            @endif
+
             @if(!$isMember)
                 <div class="bg-slate-50 dark:bg-gray-800/50 rounded-2xl border border-gray-200 dark:border-gray-700 p-6 text-center">
                     <p class="text-gray-500 dark:text-gray-400 text-sm">
@@ -87,53 +104,71 @@
             @else
                 {{-- Invite form (admins only) --}}
                 @if($isAdmin)
-                {{-- Invite by email --}}
-                <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
-                    <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Invite by email</h3>
-                    <form method="POST" action="{{ route('teams.invite', $team->slug) }}" class="flex flex-col sm:flex-row gap-3">
-                        @csrf
-                        <input type="email" name="email" required placeholder="member@email.com"
-                            class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5">
-                        <button class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
-                            Invite
-                        </button>
-                    </form>
-                </div>
+                    {{-- Invite by email --}}
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
+                        <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Invite by email</h3>
+                        <form method="POST" action="{{ route('teams.invite', $team->slug) }}" class="flex flex-col sm:flex-row gap-3">
+                            @csrf
+                            <input type="email" name="email" required placeholder="member@email.com"
+                                class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5">
+                            <button class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                                Invite
+                            </button>
+                        </form>
+                    </div>
 
-                {{-- Team invite link (shareable) --}}
-                @php
-                    $teamShareUrl = route('invite.team.public', $team->slug);
-                    $teamShareText = urlencode('Join my wealth team '.$team->name.' on Ajo');
-                    $teamShareEnc = urlencode($teamShareUrl);
-                @endphp
-                <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
-                    <h3 class="font-semibold text-gray-900 dark:text-white mb-2">Team invite link</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                        Share on WhatsApp or socials. Guests see a public page, then join after login.
-                    </p>
-                    <div class="flex flex-col sm:flex-row gap-2 mb-3">
-                        <input type="text" readonly
-                            value="{{ $teamShareUrl }}"
-                            id="team-invite-link"
-                            class="flex-1 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5 text-sm">
-                        <button type="button"
-                                onclick="navigator.clipboard.writeText(document.getElementById('team-invite-link').value); this.innerText='Copied';"
-                                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
-                            Copy
-                        </button>
+                    {{-- Team invite link (shareable) --}}
+                    @php
+                        $teamShareUrl = route('invite.team.public', $team->slug);
+                        $teamShareText = urlencode('Join my wealth team '.$team->name.' on Ajo');
+                        $teamShareEnc = urlencode($teamShareUrl);
+                    @endphp
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
+                        <h3 class="font-semibold text-gray-900 dark:text-white mb-2">Team invite link</h3>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                            Share on WhatsApp or socials. Guests see a public page, then join after login.
+                        </p>
+                        <div class="flex flex-col sm:flex-row gap-2 mb-3">
+                            <input type="text" readonly
+                                value="{{ $teamShareUrl }}"
+                                id="team-invite-link"
+                                class="flex-1 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5 text-sm">
+                            <button type="button"
+                                    onclick="navigator.clipboard.writeText(document.getElementById('team-invite-link').value); this.innerText='Copied';"
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                                Copy
+                            </button>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="https://wa.me/?text={{ $teamShareText }}%20{{ $teamShareEnc }}"
+                            target="_blank" rel="noopener"
+                            class="text-sm px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">WhatsApp</a>
+                            <a href="https://twitter.com/intent/tweet?text={{ $teamShareText }}&url={{ $teamShareEnc }}"
+                            target="_blank" rel="noopener"
+                            class="text-sm px-3 py-2 rounded-xl bg-sky-500 text-white hover:bg-sky-600">X</a>
+                            <a href="https://www.facebook.com/sharer/sharer.php?u={{ $teamShareEnc }}"
+                            target="_blank" rel="noopener"
+                            class="text-sm px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Facebook</a>
+                        </div>
                     </div>
-                    <div class="flex flex-wrap gap-2">
-                        <a href="https://wa.me/?text={{ $teamShareText }}%20{{ $teamShareEnc }}"
-                        target="_blank" rel="noopener"
-                        class="text-sm px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">WhatsApp</a>
-                        <a href="https://twitter.com/intent/tweet?text={{ $teamShareText }}&url={{ $teamShareEnc }}"
-                        target="_blank" rel="noopener"
-                        class="text-sm px-3 py-2 rounded-xl bg-sky-500 text-white hover:bg-sky-600">X</a>
-                        <a href="https://www.facebook.com/sharer/sharer.php?u={{ $teamShareEnc }}"
-                        target="_blank" rel="noopener"
-                        class="text-sm px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">Facebook</a>
+                    {{-- Feature a circle --}}
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-5 mb-6">
+                        <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Feature a circle</h3>
+                        <form method="POST" action="{{ route('teams.feature-circle', $team->slug) }}" class="flex flex-col sm:flex-row gap-3">
+                            @csrf
+                            <select name="project_id" class="flex-1 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl px-4 py-2.5 text-sm">
+                                <option value="">None</option>
+                                @foreach($team->projects()->where('project_type', 'rotational')->latest()->get() as $circle)
+                                    <option value="{{ $circle->id }}" @selected($team->featured_project_id == $circle->id)>
+                                        {{ $circle->title }}
+                                    </option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-xl">
+                                Save
+                            </button>
+                        </form>
                     </div>
-                </div>
             @endif
                 <!-- Pending requests (admins only) -->
                 @if($isAdmin && $pending->count() > 0)
