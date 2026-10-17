@@ -103,9 +103,9 @@
                         Your goal deserves more than a group chat.
                     </h1>
 
+                    {{-- Hero paragraph --}}
                     <p class="mt-5 text-base sm:text-lg text-slate-300 leading-relaxed text-pretty">
-                        People have goals. People have people. Ajo brings the two together on <strong class="text-white">ajosafe.com</strong>.
-                        Join verified Ajo circles or pool capital for cars, real estate, Japa, inventory, or travel with automated ledgers and locked vaults.
+                        Pool money with people you trust, or join an open circle. Live ledger, locked vault, and a clear goal — not a group chat.
                     </p>
 
                     <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
@@ -188,8 +188,9 @@
             <div class="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
                 <div>
                     <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Ajo Discovery Engine</span>
-                    <h2 class="text-2xl sm:text-3xl font-bold text-white mt-1">Join a verified savings circle</h2>
-                    <p class="text-slate-400 text-sm sm:text-base mt-2">No group? Browse transparent, rule-backed pools matching your budget.</p>
+                    {{-- Discovery heading --}}
+                    <h2 class="text-2xl sm:text-3xl font-bold text-white mt-1">Join an open circle</h2>
+                    <p class="text-slate-400 text-sm sm:text-base mt-2">Browse transparent teams with clear rules and open slots.</p>
                 </div>
                 <a href="{{ route('discover') }}" class="inline-flex items-center text-sm font-semibold text-indigo-400 hover:text-indigo-300 transition">
                     Explore all open circles &rarr;

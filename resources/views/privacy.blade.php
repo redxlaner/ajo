@@ -1,7 +1,7 @@
 <x-guest-layout>
     <div class="max-w-2xl mx-auto px-4 py-10 text-sm text-gray-700 dark:text-gray-300 space-y-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Privacy policy</h1>
-        <p class="text-xs text-gray-500">Last updated 5 October 2026. Ajo is operated at ajosafe.com.</p>
+        <p class="text-xs text-gray-500">Last updated 17 October 2026. Ajo is operated at ajosafe.com.</p>
 
         <section class="space-y-2">
             <h2 class="font-semibold text-gray-900 dark:text-white">What we collect</h2>
@@ -12,7 +12,7 @@
 
         <section class="space-y-2">
             <h2 class="font-semibold text-gray-900 dark:text-white">Why we use it</h2>
-            <p>To run your account, show your teams and projects, confirm contributions, draw and lock rotational payout order, send in-app and email notices you asked for, and charge the platform fee when a vault is released.</p>
+            <p>To run your account, show your teams and projects, confirm contributions, draw and lock rotational payout order, send in-app and email notices, and calculate the platform fee when a vault is released.</p>
             <p>Team admins and project creators can see member names, payment proofs, and contribution status for that team. Other members see what the team feed and project page already show. We do not sell your data.</p>
         </section>
 
@@ -29,7 +29,7 @@
 
         <section class="space-y-2">
             <h2 class="font-semibold text-gray-900 dark:text-white">Your choices</h2>
-            <p>You can edit your profile, remove a photo, and leave a team. Email notices can be ignored, but in-app records of approvals and draws stay. Contact the address on your profile settings or support@ajosafe.com for access or deletion requests.</p>
+            <p>You can edit your profile, remove a photo, and leave a team. Email notices can be ignored, but in-app records of approvals and draws stay. Contact support@ajosafe.com for access or deletion requests.</p>
         </section>
     </div>
 </x-guest-layout>

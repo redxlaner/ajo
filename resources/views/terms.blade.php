@@ -1,7 +1,7 @@
 <x-guest-layout>
     <div class="max-w-2xl mx-auto px-4 py-10 text-sm text-gray-700 dark:text-gray-300 space-y-6">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Terms of use</h1>
-        <p class="text-xs text-gray-500">Last updated 5 October 2026.</p>
+        <p class="text-xs text-gray-500">Last updated 17 October 2026.</p>
 
         <section class="space-y-2">
             <h2 class="font-semibold text-gray-900 dark:text-white">What Ajo is</h2>
