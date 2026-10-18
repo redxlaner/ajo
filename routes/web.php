@@ -979,7 +979,17 @@ Route::post('/teams/{slug}/members/{memberId}/make-admin', function ($slug, $mem
 Route::get('/teams/{slug}/projects', function ($slug) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
     $user = \Illuminate\Support\Facades\Auth::user();
-    if (!$user || !$team->isMember($user)) abort(403);
+
+    // Not logged in → login, then return here
+    if (!$user) {
+        return redirect()->guest(route('login'));
+    }
+
+    // Logged in but not a member → join page
+    if (!$team->isMember($user)) {
+        return redirect()->route('teams.join-link', $slug)
+            ->with('message', 'Join the team first to see its projects.');
+    }
 
     $projects = $team->projects()->with('vault', 'creator', 'payoutSlots')->latest()->get();
     $isAdmin = $team->isAdmin($user);
@@ -1093,12 +1103,23 @@ Route::post('/teams/{slug}/projects', function (Illuminate\Http\Request $request
 // Show project
 Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
     $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-    if (!$team->isMember(\Illuminate\Support\Facades\Auth::user())) abort(403);
+    $user = \Illuminate\Support\Facades\Auth::user();
+
+    // Not logged in → login, then return here
+    if (!$user) {
+        return redirect()->guest(route('login'));
+    }
+
+    // Logged in but not a member → join page
+    if (!$team->isMember($user)) {
+        return redirect()->route('teams.join-link', $slug)
+            ->with('message', 'Join the team first to open this project.');
+    }
 
     $project = $team->projects()->with(['vault', 'creator'])->findOrFail($id);
     $contributions = $project->contributions()->with('user')->latest()->get();
-    $currentUserId = \Illuminate\Support\Facades\Auth::id();
-    $isAdmin = $team->isAdmin(\Illuminate\Support\Facades\Auth::user());
+    $currentUserId = $user->id;
+    $isAdmin = $team->isAdmin($user);
     $isCreator = $project->creator_id === $currentUserId;
     $pendingAction = $project->vaultActions()->with(['votes.user', 'requester'])->where('status', 'pending')->first();
     $isDonor = $project->confirmedContributions()->where('user_id', $currentUserId)->exists();
@@ -1107,11 +1128,11 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
         : null;
     $donorCount = $project->confirmedContributions()->distinct('user_id')->count('user_id');
 
-    // Platform / team bank details for contributions (reuse settings for now)
     $bank = $team->bankDetails();
 
     return view('projects.show', compact(
-        'team', 'project', 'contributions', 'isAdmin', 'isCreator', 'bank', 'pendingAction', 'isDonor', 'myVote', 'donorCount'
+        'team', 'project', 'contributions', 'isAdmin', 'isCreator', 'bank',
+        'pendingAction', 'isDonor', 'myVote', 'donorCount'
     ));
 })->name('projects.show');
 
@@ -1552,35 +1573,46 @@ Route::get('/teams/{slug}/projects/{id}', function ($slug, $id) {
 
     // Feed (members only)
     Route::get('/teams/{slug}/feed', function ($slug) {
-        $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
-        if (!$team->isMember(request()->user())) abort(403);
+    $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
+    $user = request()->user();
 
-        $isAdmin = $team->isAdmin(request()->user());
+    // Not logged in → login, then return here
+    if (!$user) {
+        return redirect()->guest(route('login'));
+    }
 
-        // Load featured circle
-        $team->load('featuredProject');
+    // Logged in but not a member → join page
+    if (!$team->isMember($user)) {
+        return redirect()->route('teams.join-link', $slug)
+            ->with('message', 'Join the team first to see the feed.');
+    }
 
-        $feed = \App\Models\Activity::with([
-            'user',
-            'community',
-            'project',
-            'parent.user',
-            'comments' => fn ($q) => $q->with('user')->latest()->limit(3),
-        ])
-        ->withCount(['likes', 'comments'])
-        ->where('community_id', $team->id)
+    $isAdmin = $team->isAdmin($user);
+
+    // Load featured circle
+    $team->load('featuredProject');
+
+    $feed = \App\Models\Activity::with([
+        'user',
+        'community',
+        'project',
+        'parent.user',
+        'comments' => fn ($q) => $q->with('user')->latest()->limit(3),
+    ])
+    ->withCount(['likes', 'comments'])
+    ->where('community_id', $team->id)
+    ->latest()
+    ->paginate(20);
+
+    $polls = $team->polls()
+        ->with(['options.votes', 'votes'])
+        ->where('status', 'open')
         ->latest()
-        ->paginate(20);
+        ->take(3)
+        ->get();
 
-        $polls = $team->polls()
-            ->with(['options.votes', 'votes'])
-            ->where('status', 'open')
-            ->latest()
-            ->take(3)
-            ->get();
-
-        return view('teams.feed', compact('team', 'feed', 'isAdmin', 'polls'));
-    })->name('teams.feed');
+    return view('teams.feed', compact('team', 'feed', 'isAdmin', 'polls'));
+})->name('teams.feed');
 
    Route::post('/teams/{slug}/feed', function (\Illuminate\Http\Request $request, $slug) {
         $team = \App\Models\Community::where('slug', $slug)->firstOrFail();
