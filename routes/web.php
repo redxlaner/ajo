@@ -981,7 +981,7 @@ Route::get('/teams/{slug}/projects', function ($slug) {
     $user = \Illuminate\Support\Facades\Auth::user();
     if (!$user || !$team->isMember($user)) abort(403);
 
-    $projects = $team->projects()->with('vault', 'creator')->latest()->get();
+    $projects = $team->projects()->with('vault', 'creator', 'payoutSlots')->latest()->get();
     $isAdmin = $team->isAdmin($user);
 
     return view('projects.index', compact('team', 'projects', 'isAdmin'));

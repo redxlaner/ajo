@@ -64,13 +64,24 @@
                             </div>
                         </div>
 
+                        @if($project->project_type === 'rotational')
+                            @php
+                                $openSlots = $project->payoutSlots->where('status', 'open')->whereNull('user_id')->count();
+                            @endphp
+                            <div class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                                Open slots: <strong class="text-emerald-600 dark:text-emerald-400">{{ $openSlots }}</strong>
+                            </div>
+                        @endif
+
+                            {{-- progress bar stays here --}}
+
                         <div>
                             <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                                 <span>{{ $progress }}%</span>
                                 <span class="capitalize">Vault {{ $project->vault->status ?? 'locked' }}</span>
                             </div>
                             <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2.5">
-                                <div class="bg-indigo-500 h-2.5 rounded-full transition-all" style="width: {{ $progress }}%"></div>
+                                <div class="bg-indigo-500 h-2.5 rounded-full transition-all" x-bind:style="'width: {{ $progress }}%' "></div>
                             </div>
                         </div>
                     </a>
